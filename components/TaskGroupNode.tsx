@@ -9,7 +9,7 @@ import {
   NODE_HEIGHT,
   SUBTASK_NODE_HEIGHT,
   GROUP_INNER_GAP,
-  groupWidth,
+  GROUP_WIDTH,
   groupHeight,
 } from "@/lib/buildGraph";
 
@@ -24,7 +24,7 @@ type TaskGroupNodeType = Node<TaskGroupNodeData, "taskGroupNode">;
 function TaskGroupNode({ data }: NodeProps<TaskGroupNodeType>) {
   const { subtaskOffsets, subtaskCount } = data;
 
-  const totalWidth = groupWidth();
+  const totalWidth = GROUP_WIDTH;
   const totalHeight = groupHeight(subtaskCount);
 
   // Bracket coordinates (relative to group container top-left)

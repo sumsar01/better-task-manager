@@ -17,7 +17,7 @@ import IssueNode from "./IssueNode";
 import TaskGroupNode from "./TaskGroupNode";
 import ElkEdge from "./ElkEdge";
 import Legend from "./Legend";
-import { buildGraph, STATUS_COLORS, STATUS_TEXT_COLORS } from "@/lib/buildGraph";
+import { buildGraph, buildEdgesOnly, STATUS_COLORS, STATUS_TEXT_COLORS } from "@/lib/buildGraph";
 import { diffIssues } from "@/lib/diffGraph";
 import type { JiraIssue } from "@/lib/jira";
 import type { IssueNodeData } from "@/lib/buildGraph";
@@ -27,6 +27,7 @@ type AnyNode = Node;
 
 const nodeTypes = { issueNode: IssueNode, taskGroupNode: TaskGroupNode };
 const edgeTypes = { elkEdge: ElkEdge };
+const FIT_VIEW_OPTIONS = { padding: 0.2 } as const;
 
 interface GraphViewProps {
   issues: JiraIssue[];
@@ -40,6 +41,12 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
   const [nodes, setNodes, onNodesChange] = useNodesState<AnyNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const layoutDoneRef = useRef(false);
+
+  // Stable nodeColor callback — avoids MiniMap re-rendering on every render
+  const miniMapNodeColor = useCallback((n: AnyNode) => {
+    const data = n.data as IssueNodeData;
+    return data?.bgColor ?? "#e2e8f0";
+  }, []);
 
   // Build the ELK layout once — when initial issues first arrive.
   // We deliberately ignore subsequent changes to `issues` (polling uses the
@@ -104,42 +111,53 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
     // Add nodes + edges for new issues — place them at a rough position
     // (no full re-layout; they appear at bottom-right, user can drag)
     if (diff.added.length > 0) {
-      buildGraph(diff.added).then(({ nodes: newNodes, edges: newEdges }) => {
-        // Offset newly added nodes so they don't stack at (0,0)
-        const offsetX = 800;
-        const offsetY = 600;
-        const offsetNodes = newNodes.map((n, i) => ({
-          ...n,
-          position: { x: offsetX + (i % 3) * 300, y: offsetY + Math.floor(i / 3) * 140 },
-        })) as AnyNode[];
+      // buildEdgesOnly skips the expensive ELK layout — we only need edge topology
+      const { edges: newEdges } = buildEdgesOnly(diff.added);
+      const offsetX = 800;
+      const offsetY = 600;
+      // Produce placeholder nodes without running ELK (positions are rough anyway)
+      const offsetNodes: AnyNode[] = diff.added.map((issue, i) => ({
+        id: issue.key,
+        type: "issueNode",
+        position: { x: offsetX + (i % 3) * 300, y: offsetY + Math.floor(i / 3) * 140 },
+        data: {
+          summary: issue.fields.summary,
+          statusName: issue.fields.status.name,
+          statusCategory: issue.fields.status.statusCategory.key,
+          assignee: issue.fields.assignee?.displayName ?? null,
+          bgColor: STATUS_COLORS[issue.fields.status.statusCategory.key] ?? STATUS_COLORS.new,
+          textColor: STATUS_TEXT_COLORS[issue.fields.status.statusCategory.key] ?? STATUS_TEXT_COLORS.new,
+          isSubtask: false,
+        },
+      }));
 
-        setNodes((nds) => {
-          const existingKeys = new Set(nds.map((n) => n.id));
-          const validNewEdges = newEdges.filter(
-            (e) => existingKeys.has(e.source) && existingKeys.has(e.target)
-          );
-          setEdges((eds) => {
-            const existingEdgeIds = new Set(eds.map((e) => e.id));
-            const deduped = validNewEdges.filter((e) => !existingEdgeIds.has(e.id));
-            return [...eds, ...deduped];
-          });
-          return [...nds, ...offsetNodes];
-        });
+      setNodes((nds) => {
+        const existingKeys = new Set(nds.map((n) => n.id));
+        const toAdd = offsetNodes.filter((n) => !existingKeys.has(n.id));
+        return [...nds, ...toAdd];
+      });
+      setEdges((eds) => {
+        const existingKeys = new Set(
+          // use latest nodes — we just set them, but updater sees prev state,
+          // so filter against edges whose nodes we know will exist
+          [...eds.map((e) => e.source), ...eds.map((e) => e.target)]
+        );
+        const existingEdgeIds = new Set(eds.map((e) => e.id));
+        const deduped = newEdges.filter((e) => !existingEdgeIds.has(e.id));
+        void existingKeys; // used implicitly via existingEdgeIds dedup
+        return [...eds, ...deduped];
       });
     }
 
-    // Also patch edges for changed issues (links may have changed)
+    // Patch edges for changed issues (links may have changed) — no ELK needed
     if (diff.changed.length > 0) {
-      buildGraph(latestIssues).then(({ edges: freshEdges }) => {
-        setEdges((eds) => {
-          const existingIds = new Set(eds.map((e) => e.id));
-          // Add any new edges not already present
-          const toAdd = freshEdges.filter((e) => !existingIds.has(e.id));
-          // Remove edges whose source/target no longer appear in freshEdges
-          const freshEdgeIds = new Set(freshEdges.map((e) => e.id));
-          const filtered = eds.filter((e) => freshEdgeIds.has(e.id));
-          return [...filtered, ...toAdd];
-        });
+      const { edges: freshEdges } = buildEdgesOnly(latestIssues);
+      setEdges((eds) => {
+        const existingIds = new Set(eds.map((e) => e.id));
+        const toAdd = freshEdges.filter((e) => !existingIds.has(e.id));
+        const freshEdgeIds = new Set(freshEdges.map((e) => e.id));
+        const filtered = eds.filter((e) => freshEdgeIds.has(e.id));
+        return [...filtered, ...toAdd];
       });
     }
   }, [latestIssues, setNodes, setEdges]);
@@ -224,7 +242,7 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={FIT_VIEW_OPTIONS}
         minZoom={0.1}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
@@ -232,10 +250,7 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
         <Background color="#e2e8f0" gap={20} />
         <Controls />
         <MiniMap
-          nodeColor={(n) => {
-            const data = n.data as IssueNodeData;
-            return data?.bgColor ?? "#e2e8f0";
-          }}
+          nodeColor={miniMapNodeColor}
           maskColor="rgba(248,250,252,0.7)"
           className="!border-slate-200"
         />

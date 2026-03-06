@@ -110,96 +110,104 @@ export function groupHeight(subtaskCount: number): number {
   );
 }
 
-/** Compute total width of a task group.
- * Must be wide enough for the parent node (NODE_WIDTH + 2*GROUP_PADDING_X)
- * and the indented subtask nodes (GROUP_LEFT_INDENT + SUBTASK_NODE_WIDTH + GROUP_PADDING_X).
- */
+/** Compute total width of a task group — depends only on module-level constants. */
 export function groupWidth(): number {
   const widthForParent = NODE_WIDTH + 2 * GROUP_PADDING_X;
   const widthForSubtasks = GROUP_LEFT_INDENT + SUBTASK_NODE_WIDTH + GROUP_PADDING_X;
   return Math.max(widthForParent, widthForSubtasks);
 }
 
-// ── ELK instance ─────────────────────────────────────────────────────────────
+/** Pre-computed group width — call groupWidth() once at module load. */
+export const GROUP_WIDTH = groupWidth();
 
-const elk = new ELK();
-
-// ELK layout options — layered algorithm, top-to-bottom, orthogonal edge routing
-const ELK_OPTIONS = {
-  "elk.algorithm": "layered",
-  "elk.direction": "DOWN",
-  "elk.layered.spacing.nodeNodeBetweenLayers": "120",
-  "elk.spacing.nodeNode": "80",
-  "elk.edgeRouting": "ORTHOGONAL",
-  "elk.layered.unnecessaryBendpoints": "true",
-  // Pad the graph so bend points don't clip the canvas edge
-  "elk.padding": "[top=40, left=40, bottom=40, right=40]",
-};
-
-// ── Main builder ─────────────────────────────────────────────────────────────
-
-export interface GraphData {
-  nodes: Node[];
-  edges: Edge[];
-}
+// ── BFS helper (module-scope, accepts blocksAdj as arg) ──────────────────────
 
 /**
- * Convert a flat list of JiraIssues (epic children + subtasks) into
- * React Flow nodes and edges with a top-to-bottom ELK layered layout.
- *
- * Subtasks are grouped visually under their parent task:
- *  - A transparent "taskGroup" container node wraps the parent + its subtasks.
- *  - Subtasks are positioned inside the group at fixed vertical offsets.
- *  - Parent→subtask dashed edges are suppressed (the grouping is visual instead).
- *  - Parent tasks show a subtaskCount badge.
- *
- * Edge direction: blocker → blocked (arrows point DOWN toward blocked work).
- *
- * ELK returns bend points for each edge (edge.sections[0].bendPoints).
- * These are stored on edge.data.bendPoints and consumed by the ElkEdge
- * custom renderer for true obstacle-aware routing.
+ * Returns true if `target` is reachable from `start` through the blocksAdj
+ * graph WITHOUT using the direct edge start → target (i.e., via a path ≥ 2).
+ * Uses BFS with an index pointer (O(1) dequeue) instead of Array.shift().
  */
-export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
+function isBlocksReachableIndirectly(
+  blocksAdj: Map<string, Set<string>>,
+  start: string,
+  target: string,
+): boolean {
+  const visited = new Set<string>();
+  const queue: string[] = [];
+  let head = 0;
+
+  for (const next of blocksAdj.get(start) ?? []) {
+    if (next !== target && !visited.has(next)) {
+      visited.add(next);
+      queue.push(next);
+    }
+  }
+
+  while (head < queue.length) {
+    const node = queue[head++];
+    for (const next of blocksAdj.get(node) ?? []) {
+      if (next === target) return true;
+      if (!visited.has(next)) {
+        visited.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return false;
+}
+
+// ── Shared graph-structure builder (phases 1–4, no layout) ──────────────────
+
+/**
+ * Internal result of the structure-building phases.
+ * Used by both buildGraph (which also runs ELK layout) and
+ * buildEdgesOnly (which skips layout entirely).
+ */
+interface GraphStructure {
+  nodes: Node[];
+  edges: Edge[];
+  /** parentKey → groupNodeId */
+  groupIds: Map<string, string>;
+  /** issueKey → groupNodeId */
+  issueGroupId: Map<string, string>;
+  /** subtask keys that belong to a group */
+  childKeys: Set<string>;
+}
+
+function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
   const issueMap = new Map(issues.map((i) => [i.key, i]));
   const nodes: Node[] = [];
   const edges: Edge[] = [];
-  const edgeSet = new Set<string>(); // deduplicate
+  const edgeSet = new Set<string>();
 
   // ── 1. Build parent→children map ────────────────────────────────────────
-  // Detect subtasks by:
-  //   (a) issuetype.subtask === true AND fields.parent exists in this set, OR
-  //   (b) fields.parent exists in this set AND parent is not a subtask itself
-  //       (catches cases where issuetype.subtask may be false but parent link exists)
-  const parentToSubtasks = new Map<string, string[]>(); // parentKey → [subtaskKey, ...]
+  const parentToSubtasks = new Map<string, string[]>();
 
   for (const issue of issues) {
     if (!issue.fields.parent) continue;
     const pk = issue.fields.parent.key;
     if (!issueMap.has(pk)) continue;
-    // Only group as subtask if: issuetype.subtask flag OR the parent's issuetype is NOT a subtask
-    // (avoid double-nesting if parent is itself a subtask)
     const parentIssue = issueMap.get(pk)!;
-    if (parentIssue.fields.issuetype.subtask) continue; // don't nest subtask-of-subtask
+    if (parentIssue.fields.issuetype.subtask) continue;
+    if (parentIssue.fields.issuetype.name === "Epic") continue; // tasks are not sub-tasks of epics
     if (!parentToSubtasks.has(pk)) parentToSubtasks.set(pk, []);
     parentToSubtasks.get(pk)!.push(issue.key);
   }
 
-  // Track which issue keys are placed inside a group (so we can skip them in ELK top-level layout)
-  const childKeys = new Set<string>(); // subtask keys that have a group
-  const groupIds = new Map<string, string>(); // parentKey → groupNodeId
-  const issueGroupId = new Map<string, string>(); // issueKey → groupNodeId (for child nodes)
+  const childKeys = new Set<string>();
+  const groupIds = new Map<string, string>();
+  const issueGroupId = new Map<string, string>();
 
-  // ── 2. Build group container nodes + place parent + subtask nodes inside them ──
+  // ── 2. Build group container nodes ──────────────────────────────────────
   for (const [parentKey, subtaskKeys] of parentToSubtasks.entries()) {
     if (subtaskKeys.length === 0) continue;
 
     const groupId = `group__${parentKey}`;
     groupIds.set(parentKey, groupId);
 
-    const gWidth = groupWidth();
+    const gWidth = GROUP_WIDTH;
     const gHeight = groupHeight(subtaskKeys.length);
 
-    // Compute subtask Y offsets (relative to group top) for the SVG bracket renderer
     const subtaskOffsets: number[] = [];
     let currentY = GROUP_PADDING_TOP + NODE_HEIGHT + GROUP_INNER_GAP;
     for (let i = 0; i < subtaskKeys.length; i++) {
@@ -207,12 +215,10 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
       currentY += SUBTASK_NODE_HEIGHT + GROUP_INNER_GAP;
     }
 
-    // Group container node (type: "taskGroupNode")
     nodes.push({
       id: groupId,
       type: "taskGroupNode",
-      position: { x: 0, y: 0 }, // ELK will set this
-      // React Flow 12 uses node.width/height (not style) for parent-node sizing
+      position: { x: 0, y: 0 },
       width: gWidth,
       height: gHeight,
       style: { width: gWidth, height: gHeight },
@@ -224,7 +230,6 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
       } satisfies TaskGroupNodeData,
     });
 
-    // Parent issue node — positioned at the top of the group
     const parentIssue = issueMap.get(parentKey)!;
     const parentCat = parentIssue.fields.status.statusCategory.key;
     nodes.push({
@@ -251,7 +256,6 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
 
     issueGroupId.set(parentKey, groupId);
 
-    // Subtask nodes — stacked below the parent inside the group
     for (let i = 0; i < subtaskKeys.length; i++) {
       const sk = subtaskKeys[i];
       const subtaskIssue = issueMap.get(sk)!;
@@ -283,14 +287,11 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
     }
   }
 
-  // ── 3. Build standalone nodes (issues not in any group) ──────────────────
+  // ── 3. Build standalone nodes ────────────────────────────────────────────
   for (const issue of issues) {
-    // Skip issues already placed in a group
     if (issueGroupId.has(issue.key)) continue;
 
     const cat = issue.fields.status.statusCategory.key;
-    // An epic that has no children in the loaded set is not acting as a group
-    // parent — flag it so IssueNode can render it with a distinct visual style.
     const isEpicStandalone =
       issue.fields.issuetype.name === "Epic" && !groupIds.has(issue.key);
     nodes.push({
@@ -314,16 +315,11 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
   }
 
   // ── 4a. Transitive reduction of "blocks" edges ──────────────────────────
-  // Build a raw blocks adjacency map (issue key → set of keys it blocks)
-  // using only the direct links from the Jira data, before groupOrKey mapping.
-  // Then for each direct blocks edge (u → v), mark it redundant if v is
-  // reachable from u via a path of length ≥ 2 through other blocks edges.
   const blocksAdj = new Map<string, Set<string>>();
   for (const issue of issues) {
     for (const link of issue.fields.issuelinks ?? []) {
       if (link.outwardIssue && issueMap.has(link.outwardIssue.key)) {
-        const typeName = link.type.outward.toLowerCase();
-        if (typeName === "blocks") {
+        if (link.type.outward.toLowerCase() === "blocks") {
           if (!blocksAdj.has(issue.key)) blocksAdj.set(issue.key, new Set());
           blocksAdj.get(issue.key)!.add(link.outwardIssue.key);
         }
@@ -331,12 +327,10 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
       if (link.inwardIssue && issueMap.has(link.inwardIssue.key)) {
         const typeName = link.type.inward.toLowerCase();
         if (typeName === "is blocked by") {
-          // inwardIssue blocks this issue
           const blocker = link.inwardIssue.key;
           if (!blocksAdj.has(blocker)) blocksAdj.set(blocker, new Set());
           blocksAdj.get(blocker)!.add(issue.key);
         } else if (typeName === "blocks") {
-          // this issue blocks inwardIssue (flipped)
           if (!blocksAdj.has(issue.key)) blocksAdj.set(issue.key, new Set());
           blocksAdj.get(issue.key)!.add(link.inwardIssue.key);
         }
@@ -344,62 +338,23 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
     }
   }
 
-  /**
-   * Returns true if `target` is reachable from `start` through the blocksAdj
-   * graph WITHOUT using the direct edge start → target (i.e., via a path ≥ 2).
-   * Uses BFS over issue keys.
-   */
-  function isBlocksReachableIndirectly(start: string, target: string): boolean {
-    const visited = new Set<string>();
-    // Seed BFS with neighbours of start, excluding target itself as a starting
-    // point so we only find paths of length ≥ 2.
-    const queue: string[] = [];
-    for (const next of blocksAdj.get(start) ?? []) {
-      if (next !== target && !visited.has(next)) {
-        visited.add(next);
-        queue.push(next);
-      }
-    }
-    while (queue.length > 0) {
-      const node = queue.shift()!;
-      for (const next of blocksAdj.get(node) ?? []) {
-        if (next === target) return true;
-        if (!visited.has(next)) {
-          visited.add(next);
-          queue.push(next);
-        }
-      }
-    }
-    return false;
-  }
-
-  // ── 4b. Build edges from issuelinks (skip internal parent→subtask edges) ──
-
-  // Helper: resolve the node ID to use as edge source/target.
-  // When an issue is a grouped parent, use the group container ID so that
-  // edges connect to the group's handles at the true top/bottom — not through
-  // the sub-task area inside the group.
-  // When an issue is a subtask inside a group, also use the group container ID
-  // (subtasks cannot have their own external handles).
+  // ── 4b. Helper: resolve node ID for edge endpoints ──────────────────────
   function groupOrKey(key: string): string {
-    // Parent of a group → use group id
     const gid = groupIds.get(key);
     if (gid) return gid;
-    // Subtask inside a group → use that group id
     const parentGid = issueGroupId.get(key);
     if (parentGid && childKeys.has(key)) return parentGid;
     return key;
   }
 
+  // ── 4c. Build edges ──────────────────────────────────────────────────────
   for (const issue of issues) {
     for (const link of issue.fields.issuelinks ?? []) {
-      // outwardIssue: this issue → outward (e.g., "blocks" FOO-2)
       if (link.outwardIssue && issueMap.has(link.outwardIssue.key)) {
-        const typeName = link.type.outward; // e.g. "blocks"
-        // Transitive reduction: skip redundant blocks edges
+        const typeName = link.type.outward;
         if (
           typeName.toLowerCase() === "blocks" &&
-          isBlocksReachableIndirectly(issue.key, link.outwardIssue.key)
+          isBlocksReachableIndirectly(blocksAdj, issue.key, link.outwardIssue.key)
         ) {
           continue;
         }
@@ -423,19 +378,16 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
           });
         }
       }
-      // inwardIssue: inward → this issue (e.g., FOO-1 "is blocked by" this)
+
       if (link.inwardIssue && issueMap.has(link.inwardIssue.key)) {
-        const typeName = link.type.inward; // e.g. "is blocked by"
+        const typeName = link.type.inward;
         const normalised = typeName.toLowerCase();
-        // Normalise direction: blocker → blocked
         let rawBlocker = link.inwardIssue.key;
         let rawBlocked = issue.key;
         if (normalised === "blocks") {
-          // this issue blocks inward — flip raw keys
           [rawBlocker, rawBlocked] = [rawBlocked, rawBlocker];
         }
-        // Transitive reduction: skip redundant blocks edges
-        if (normalised.includes("block") && isBlocksReachableIndirectly(rawBlocker, rawBlocked)) {
+        if (normalised.includes("block") && isBlocksReachableIndirectly(blocksAdj, rawBlocker, rawBlocked)) {
           continue;
         }
         const source = groupOrKey(rawBlocker);
@@ -460,11 +412,8 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
       }
     }
 
-    // Parent → child edges: SUPPRESS internal ones (visual grouping handles them),
-    // but KEEP them if the parent is not in this issue set (edge crosses groups)
     if (issue.fields.parent && issueMap.has(issue.fields.parent.key)) {
       const parentKey = issue.fields.parent.key;
-      // Skip if this issue is a subtask and its parent is in the same group
       const inGroup = childKeys.has(issue.key) && parentToSubtasks.has(parentKey);
       if (!inGroup) {
         const edgeId = `${parentKey}-${issue.key}-subtask`;
@@ -487,14 +436,64 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
     }
   }
 
+  return { nodes, edges, groupIds, issueGroupId, childKeys };
+}
+
+// ── ELK instance ─────────────────────────────────────────────────────────────
+
+const elk = new ELK();
+
+const ELK_OPTIONS = {
+  "elk.algorithm": "layered",
+  "elk.direction": "DOWN",
+  "elk.layered.spacing.nodeNodeBetweenLayers": "120",
+  "elk.spacing.nodeNode": "80",
+  "elk.edgeRouting": "ORTHOGONAL",
+  "elk.layered.unnecessaryBendpoints": "true",
+  "elk.padding": "[top=40, left=40, bottom=40, right=40]",
+};
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+export interface GraphData {
+  nodes: Node[];
+  edges: Edge[];
+}
+
+/**
+ * Build edges only (phases 1–4), skipping ELK layout entirely.
+ * Use this in polling diff paths where positions are not needed —
+ * avoids the expensive async ELK layout call.
+ */
+export function buildEdgesOnly(issues: JiraIssue[]): { edges: Edge[] } {
+  const { edges } = buildGraphStructure(issues);
+  return { edges };
+}
+
+/**
+ * Convert a flat list of JiraIssues into React Flow nodes and edges
+ * with a top-to-bottom ELK layered layout.
+ *
+ * Subtasks are grouped visually under their parent task.
+ * ELK bend points are stored on edge.data.bendPoints for the ElkEdge renderer.
+ */
+export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
+  const { nodes, edges, groupIds, issueGroupId, childKeys } = buildGraphStructure(issues);
+
   // ── 5. Apply ELK layout to top-level nodes only ──────────────────────────
-  // Top-level = nodes without a parentId (group containers + standalone issues)
   const topLevelNodes = nodes.filter((n) => !n.parentId);
   const topLevelNodeIds = new Set(topLevelNodes.map((n) => n.id));
 
-  // Build the ELK graph — edges only between top-level nodes
+  function groupOrKey(key: string): string {
+    const gid = groupIds.get(key);
+    if (gid) return gid;
+    const parentGid = issueGroupId.get(key);
+    if (parentGid && childKeys.has(key)) return parentGid;
+    return key;
+  }
+
   const elkEdges: ElkExtendedEdge[] = [];
-  const edgeIdToElkId = new Map<string, string>(); // React Flow edge id → ELK edge id
+  const edgeIdToElkId = new Map<string, string>();
 
   for (const edge of edges) {
     const src = groupOrKey(edge.source);
@@ -502,56 +501,46 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
     if (src !== tgt && topLevelNodeIds.has(src) && topLevelNodeIds.has(tgt)) {
       const elkEdgeId = `elk__${edge.id}`;
       edgeIdToElkId.set(edge.id, elkEdgeId);
-      elkEdges.push({
-        id: elkEdgeId,
-        sources: [src],
-        targets: [tgt],
-      });
+      elkEdges.push({ id: elkEdgeId, sources: [src], targets: [tgt] });
     }
   }
 
   const elkGraph: ElkNode = {
     id: "root",
     layoutOptions: ELK_OPTIONS,
-    children: topLevelNodes.map((node) => {
-      const w = node.type === "taskGroupNode" ? (node.width as number) : NODE_WIDTH;
-      const h = node.type === "taskGroupNode" ? (node.height as number) : NODE_HEIGHT;
-      return {
-        id: node.id,
-        width: w,
-        height: h,
-      };
-    }),
+    children: topLevelNodes.map((node) => ({
+      id: node.id,
+      width: node.type === "taskGroupNode" ? (node.width as number) : NODE_WIDTH,
+      height: node.type === "taskGroupNode" ? (node.height as number) : NODE_HEIGHT,
+    })),
     edges: elkEdges,
   };
 
   const layoutedGraph = await elk.layout(elkGraph);
 
-  // Apply positions from ELK result to top-level nodes
-  // ELK gives top-left (x, y) directly — no center→top-left conversion needed
+  // Apply positions — ELK gives top-left (x, y) directly
   const elkNodeMap = new Map<string, { x: number; y: number }>();
   for (const elkNode of layoutedGraph.children ?? []) {
     elkNodeMap.set(elkNode.id, { x: elkNode.x ?? 0, y: elkNode.y ?? 0 });
   }
-
   for (const node of topLevelNodes) {
     const pos = elkNodeMap.get(node.id);
-    if (pos) {
-      node.position = { x: pos.x, y: pos.y };
-    }
+    if (pos) node.position = { x: pos.x, y: pos.y };
   }
 
-  // Extract bend points from ELK edges and attach to React Flow edges
+  // Extract bend points and attach to React Flow edges
+  type LayoutedEdge = ElkExtendedEdge & {
+    sections?: Array<{ startPoint: ElkPoint; endPoint: ElkPoint; bendPoints?: ElkPoint[] }>;
+  };
   const elkEdgeMap = new Map<string, ElkPoint[]>();
   for (const elkEdge of layoutedGraph.edges ?? []) {
-    const section = (elkEdge as ElkExtendedEdge & { sections?: Array<{ startPoint: ElkPoint; endPoint: ElkPoint; bendPoints?: ElkPoint[] }> }).sections?.[0];
+    const section = (elkEdge as LayoutedEdge).sections?.[0];
     if (section) {
-      const points: ElkPoint[] = [
+      elkEdgeMap.set(elkEdge.id, [
         section.startPoint,
         ...(section.bendPoints ?? []),
         section.endPoint,
-      ];
-      elkEdgeMap.set(elkEdge.id, points);
+      ]);
     }
   }
 
@@ -559,9 +548,7 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
     const elkId = edgeIdToElkId.get(edge.id);
     if (elkId) {
       const pts = elkEdgeMap.get(elkId);
-      if (pts) {
-        (edge.data as Record<string, unknown>).bendPoints = pts;
-      }
+      if (pts) (edge.data as Record<string, unknown>).bendPoints = pts;
     }
   }
 

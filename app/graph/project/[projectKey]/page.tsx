@@ -48,6 +48,7 @@ export default function ProjectGraphPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const isMountedRef = useRef(true);
+  const hasLoadedRef = useRef(false);
 
   const secondsSince = useSecondsTick(lastUpdated !== null);
 
@@ -55,15 +56,16 @@ export default function ProjectGraphPage() {
     setSelectedKey(key);
   }, []);
 
-  async function fetchIssues(project: string): Promise<JiraIssue[]> {
+  const fetchIssues = useCallback(async (project: string): Promise<JiraIssue[]> => {
     const r = await fetch(`/api/jira/issues/project?project=${encodeURIComponent(project)}`);
     if (!r.ok) throw new Error(`Failed to load issues (${r.status})`);
     return r.json();
-  }
+  }, []);
 
   useEffect(() => {
     if (!projectKey) return;
     isMountedRef.current = true;
+    hasLoadedRef.current = false;
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
@@ -73,6 +75,7 @@ export default function ProjectGraphPage() {
         setIssues(data);
         setLatestIssues(data);
         setLastUpdated(new Date());
+        hasLoadedRef.current = true;
       })
       .catch((e: Error) => {
         if (!isMountedRef.current) return;
@@ -85,12 +88,13 @@ export default function ProjectGraphPage() {
     return () => {
       isMountedRef.current = false;
     };
-  }, [projectKey]);
+  }, [projectKey, fetchIssues]);
 
   useEffect(() => {
-    if (!projectKey || loading || error) return;
+    if (!projectKey || error) return;
 
     const id = setInterval(async () => {
+      if (!hasLoadedRef.current) return;
       try {
         const data = await fetchIssues(projectKey);
         if (!isMountedRef.current) return;
@@ -102,7 +106,7 @@ export default function ProjectGraphPage() {
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(id);
-  }, [projectKey, loading, error]);
+  }, [projectKey, error, fetchIssues]);
 
   return (
     <div className="flex flex-col h-screen bg-slate-50">

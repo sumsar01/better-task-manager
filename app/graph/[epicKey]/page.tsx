@@ -42,6 +42,7 @@ export default function GraphPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const isMountedRef = useRef(true);
+  const hasLoadedRef = useRef(false);
 
   const secondsSince = useSecondsTick(lastUpdated !== null);
 
@@ -49,15 +50,16 @@ export default function GraphPage() {
     setSelectedKey(key);
   }, []);
 
-  async function fetchIssues(epic: string): Promise<JiraIssue[]> {
+  const fetchIssues = useCallback(async (epic: string): Promise<JiraIssue[]> => {
     const r = await fetch(`/api/jira/issues?epic=${encodeURIComponent(epic)}`);
     if (!r.ok) throw new Error(`Failed to load issues (${r.status})`);
     return r.json();
-  }
+  }, []);
 
   useEffect(() => {
     if (!epicKey) return;
     isMountedRef.current = true;
+    hasLoadedRef.current = false;
 
     setLoading(true);
     fetchIssues(epicKey)
@@ -66,6 +68,7 @@ export default function GraphPage() {
         setIssues(data);
         setLatestIssues(data);
         setLastUpdated(new Date());
+        hasLoadedRef.current = true;
       })
       .catch((e: Error) => {
         if (!isMountedRef.current) return;
@@ -78,12 +81,13 @@ export default function GraphPage() {
     return () => {
       isMountedRef.current = false;
     };
-  }, [epicKey]);
+  }, [epicKey, fetchIssues]);
 
   useEffect(() => {
-    if (!epicKey || loading || error) return;
+    if (!epicKey || error) return;
 
     const id = setInterval(async () => {
+      if (!hasLoadedRef.current) return;
       try {
         const data = await fetchIssues(epicKey);
         if (!isMountedRef.current) return;
@@ -95,7 +99,7 @@ export default function GraphPage() {
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(id);
-  }, [epicKey, loading, error]);
+  }, [epicKey, error, fetchIssues]);
 
   return (
     <div className="flex flex-col h-screen bg-slate-50">
