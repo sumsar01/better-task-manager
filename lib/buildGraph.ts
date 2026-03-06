@@ -1,4 +1,5 @@
-import dagre from "dagre";
+import ELK from "elkjs/lib/elk.bundled.js";
+import type { ElkNode, ElkExtendedEdge, ElkPoint } from "elkjs/lib/elk-api.js";
 import type { Node, Edge } from "@xyflow/react";
 import type { JiraIssue } from "./jira";
 
@@ -119,6 +120,22 @@ export function groupWidth(): number {
   return Math.max(widthForParent, widthForSubtasks);
 }
 
+// ── ELK instance ─────────────────────────────────────────────────────────────
+
+const elk = new ELK();
+
+// ELK layout options — layered algorithm, top-to-bottom, orthogonal edge routing
+const ELK_OPTIONS = {
+  "elk.algorithm": "layered",
+  "elk.direction": "DOWN",
+  "elk.layered.spacing.nodeNodeBetweenLayers": "120",
+  "elk.spacing.nodeNode": "80",
+  "elk.edgeRouting": "ORTHOGONAL",
+  "elk.layered.unnecessaryBendpoints": "true",
+  // Pad the graph so bend points don't clip the canvas edge
+  "elk.padding": "[top=40, left=40, bottom=40, right=40]",
+};
+
 // ── Main builder ─────────────────────────────────────────────────────────────
 
 export interface GraphData {
@@ -128,7 +145,7 @@ export interface GraphData {
 
 /**
  * Convert a flat list of JiraIssues (epic children + subtasks) into
- * React Flow nodes and edges with a top-to-bottom dagre layout.
+ * React Flow nodes and edges with a top-to-bottom ELK layered layout.
  *
  * Subtasks are grouped visually under their parent task:
  *  - A transparent "taskGroup" container node wraps the parent + its subtasks.
@@ -137,8 +154,12 @@ export interface GraphData {
  *  - Parent tasks show a subtaskCount badge.
  *
  * Edge direction: blocker → blocked (arrows point DOWN toward blocked work).
+ *
+ * ELK returns bend points for each edge (edge.sections[0].bendPoints).
+ * These are stored on edge.data.bendPoints and consumed by the ElkEdge
+ * custom renderer for true obstacle-aware routing.
  */
-export function buildGraph(issues: JiraIssue[]): GraphData {
+export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
   const issueMap = new Map(issues.map((i) => [i.key, i]));
   const nodes: Node[] = [];
   const edges: Edge[] = [];
@@ -163,7 +184,7 @@ export function buildGraph(issues: JiraIssue[]): GraphData {
     parentToSubtasks.get(pk)!.push(issue.key);
   }
 
-  // Track which issue keys are placed inside a group (so we can skip them in dagre top-level layout)
+  // Track which issue keys are placed inside a group (so we can skip them in ELK top-level layout)
   const childKeys = new Set<string>(); // subtask keys that have a group
   const groupIds = new Map<string, string>(); // parentKey → groupNodeId
   const issueGroupId = new Map<string, string>(); // issueKey → groupNodeId (for child nodes)
@@ -190,7 +211,7 @@ export function buildGraph(issues: JiraIssue[]): GraphData {
     nodes.push({
       id: groupId,
       type: "taskGroupNode",
-      position: { x: 0, y: 0 }, // dagre will set this
+      position: { x: 0, y: 0 }, // ELK will set this
       // React Flow 12 uses node.width/height (not style) for parent-node sizing
       width: gWidth,
       height: gHeight,
@@ -393,11 +414,12 @@ export function buildGraph(issues: JiraIssue[]): GraphData {
             source: src,
             target: tgt,
             label: getEdgeLabel(typeName),
-            type: "smoothstep",
+            type: "elkEdge",
             animated: typeName.toLowerCase() === "blocks",
             style: { stroke: color, strokeWidth: 2 },
             labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
             labelBgStyle: { fill: "white", fillOpacity: 0.85 },
+            data: { color, bendPoints: [] },
           });
         }
       }
@@ -427,11 +449,12 @@ export function buildGraph(issues: JiraIssue[]): GraphData {
             source,
             target,
             label: getEdgeLabel(typeName),
-            type: "smoothstep",
+            type: "elkEdge",
             animated: normalised.includes("block"),
             style: { stroke: color, strokeWidth: 2 },
             labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
             labelBgStyle: { fill: "white", fillOpacity: 0.85 },
+            data: { color, bendPoints: [] },
           });
         }
       }
@@ -452,56 +475,94 @@ export function buildGraph(issues: JiraIssue[]): GraphData {
             source: parentKey,
             target: issue.key,
             label: "subtask",
-            type: "smoothstep",
+            type: "elkEdge",
             animated: false,
             style: { stroke: EDGE_COLORS.subtask, strokeWidth: 1.5, strokeDasharray: "5 3" },
             labelStyle: { fill: EDGE_COLORS.subtask, fontWeight: 600, fontSize: 11 },
             labelBgStyle: { fill: "white", fillOpacity: 0.85 },
+            data: { color: EDGE_COLORS.subtask, bendPoints: [] },
           });
         }
       }
     }
   }
 
-  // ── 5. Apply dagre layout to top-level nodes only ────────────────────────
+  // ── 5. Apply ELK layout to top-level nodes only ──────────────────────────
   // Top-level = nodes without a parentId (group containers + standalone issues)
   const topLevelNodes = nodes.filter((n) => !n.parentId);
+  const topLevelNodeIds = new Set(topLevelNodes.map((n) => n.id));
 
-  const g = new dagre.graphlib.Graph();
-  g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: "TB", nodesep: 80, ranksep: 200 });
+  // Build the ELK graph — edges only between top-level nodes
+  const elkEdges: ElkExtendedEdge[] = [];
+  const edgeIdToElkId = new Map<string, string>(); // React Flow edge id → ELK edge id
 
-  for (const node of topLevelNodes) {
-    const w = node.type === "taskGroupNode"
-      ? (node.width as number)
-      : NODE_WIDTH;
-    const h = node.type === "taskGroupNode"
-      ? (node.height as number)
-      : NODE_HEIGHT;
-    g.setNode(node.id, { width: w, height: h });
-  }
-
-  // Add edges between top-level nodes for dagre ordering.
-  // For nodes inside groups, we connect via their group container id.
   for (const edge of edges) {
     const src = groupOrKey(edge.source);
     const tgt = groupOrKey(edge.target);
-    if (src !== tgt && g.hasNode(src) && g.hasNode(tgt)) {
-      g.setEdge(src, tgt);
+    if (src !== tgt && topLevelNodeIds.has(src) && topLevelNodeIds.has(tgt)) {
+      const elkEdgeId = `elk__${edge.id}`;
+      edgeIdToElkId.set(edge.id, elkEdgeId);
+      elkEdges.push({
+        id: elkEdgeId,
+        sources: [src],
+        targets: [tgt],
+      });
     }
   }
 
-  dagre.layout(g);
+  const elkGraph: ElkNode = {
+    id: "root",
+    layoutOptions: ELK_OPTIONS,
+    children: topLevelNodes.map((node) => {
+      const w = node.type === "taskGroupNode" ? (node.width as number) : NODE_WIDTH;
+      const h = node.type === "taskGroupNode" ? (node.height as number) : NODE_HEIGHT;
+      return {
+        id: node.id,
+        width: w,
+        height: h,
+      };
+    }),
+    edges: elkEdges,
+  };
+
+  const layoutedGraph = await elk.layout(elkGraph);
+
+  // Apply positions from ELK result to top-level nodes
+  // ELK gives top-left (x, y) directly — no center→top-left conversion needed
+  const elkNodeMap = new Map<string, { x: number; y: number }>();
+  for (const elkNode of layoutedGraph.children ?? []) {
+    elkNodeMap.set(elkNode.id, { x: elkNode.x ?? 0, y: elkNode.y ?? 0 });
+  }
 
   for (const node of topLevelNodes) {
-    const pos = g.node(node.id);
-    if (!pos) continue;
-    const w = node.type === "taskGroupNode" ? (node.width as number) : NODE_WIDTH;
-    const h = node.type === "taskGroupNode" ? (node.height as number) : NODE_HEIGHT;
-    node.position = {
-      x: pos.x - w / 2,
-      y: pos.y - h / 2,
-    };
+    const pos = elkNodeMap.get(node.id);
+    if (pos) {
+      node.position = { x: pos.x, y: pos.y };
+    }
+  }
+
+  // Extract bend points from ELK edges and attach to React Flow edges
+  const elkEdgeMap = new Map<string, ElkPoint[]>();
+  for (const elkEdge of layoutedGraph.edges ?? []) {
+    const section = (elkEdge as ElkExtendedEdge & { sections?: Array<{ startPoint: ElkPoint; endPoint: ElkPoint; bendPoints?: ElkPoint[] }> }).sections?.[0];
+    if (section) {
+      const points: ElkPoint[] = [
+        section.startPoint,
+        ...(section.bendPoints ?? []),
+        section.endPoint,
+      ];
+      elkEdgeMap.set(elkEdge.id, points);
+    }
+  }
+
+  for (const edge of edges) {
+    const elkId = edgeIdToElkId.get(edge.id);
+    if (elkId) {
+      const pts = elkEdgeMap.get(elkId);
+      if (pts) {
+        (edge.data as Record<string, unknown>).bendPoints = pts;
+      }
+    }
   }
 
   return { nodes, edges };
