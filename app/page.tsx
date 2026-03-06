@@ -13,7 +13,7 @@ export default function Home() {
         style={{ background: "radial-gradient(circle, #c7d2fe 0%, transparent 70%)" }}
       />
 
-      <div className="relative w-full max-w-sm">
+      <div className="relative w-full max-w-md">
         {/* Wordmark */}
         <div className="mb-10 text-center">
           <div className="inline-flex items-center gap-2 mb-4">
@@ -39,12 +39,8 @@ export default function Home() {
 
         {/* Card */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-200/50 overflow-hidden">
-          <div className="px-6 pt-6 pb-5">
+          <div className="px-6 pt-6 pb-6">
             <EpicPicker />
-          </div>
-          <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-[11px] text-slate-400">Connecting to Jira Cloud</span>
           </div>
         </div>
       </div>
