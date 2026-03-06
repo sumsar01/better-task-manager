@@ -6,8 +6,46 @@ import GraphView from "@/components/GraphView";
 import IssueDetailPanel from "@/components/IssueDetailPanel";
 import type { JiraIssue } from "@/lib/jira";
 
-const POLL_INTERVAL_MS = 30_000;
 const JIRA_BASE_URL = process.env.NEXT_PUBLIC_JIRA_BASE_URL ?? "";
+
+// ── Types mirroring the server-side NDJSON messages ──────────────────────────
+
+interface EpicsMessage {
+  type: "epics";
+  issues: JiraIssue[];
+  total: number;
+}
+
+interface ChildrenMessage {
+  type: "children";
+  epicKey: string;
+  issues: JiraIssue[];
+  expanded: number;
+  total: number;
+}
+
+interface ErrorMessage {
+  type: "error";
+  epicKey: string;
+  error: string;
+}
+
+interface DoneMessage {
+  type: "done";
+}
+
+type StreamMessage = EpicsMessage | ChildrenMessage | ErrorMessage | DoneMessage;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function dedupeByKey(issues: JiraIssue[]): JiraIssue[] {
+  const seen = new Set<string>();
+  return issues.filter((i) => {
+    if (seen.has(i.key)) return false;
+    seen.add(i.key);
+    return true;
+  });
+}
 
 function useSecondsTick(enabled: boolean) {
   const startRef = useRef<number | null>(null);
@@ -37,18 +75,27 @@ function LiveBadge({ seconds }: { seconds: number }) {
   );
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function ProjectGraphPage() {
   const { projectKey } = useParams<{ projectKey: string }>();
   const router = useRouter();
 
+  // `issues` is only set once streaming is fully complete — GraphView must
+  // receive a stable, final array so that buildGraph (which locks layoutDoneRef)
+  // runs exactly once on the complete dataset rather than on a partial stream.
   const [issues, setIssues] = useState<JiraIssue[]>([]);
-  const [latestIssues, setLatestIssues] = useState<JiraIssue[]>([]);
   const [loading, setLoading] = useState(true);
+  // null = not yet streaming, object = streaming in progress
+  const [expandProgress, setExpandProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+
   const isMountedRef = useRef(true);
-  const hasLoadedRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  // Accumulates issues during streaming — flushed to state on "done"
+  const accIssuesRef = useRef<JiraIssue[]>([]);
 
   const secondsSince = useSecondsTick(lastUpdated !== null);
 
@@ -56,57 +103,107 @@ export default function ProjectGraphPage() {
     setSelectedKey(key);
   }, []);
 
-  const fetchIssues = useCallback(async (project: string): Promise<JiraIssue[]> => {
-    const r = await fetch(`/api/jira/issues/project?project=${encodeURIComponent(project)}`);
-    if (!r.ok) throw new Error(`Failed to load issues (${r.status})`);
-    return r.json();
+  const streamIssues = useCallback(async (project: string) => {
+    // Cancel any previous in-flight stream
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setLoading(true);
+    setError(null);
+    setIssues([]);
+    setExpandProgress(null);
+    accIssuesRef.current = [];
+
+    let fatalError = false;
+
+    try {
+      const res = await fetch(
+        `/api/jira/issues/project?project=${encodeURIComponent(project)}`,
+        { signal: controller.signal },
+      );
+
+      if (!res.ok || !res.body) {
+        throw new Error(`Failed to load issues (${res.status})`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? ""; // keep any partial trailing line
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          let msg: StreamMessage;
+          try {
+            msg = JSON.parse(trimmed) as StreamMessage;
+          } catch {
+            console.warn("[project-stream] Failed to parse line:", trimmed);
+            continue;
+          }
+
+          if (!isMountedRef.current) return;
+
+          if (msg.type === "epics") {
+            // Accumulate epics — do NOT push to state yet (GraphView would
+            // run buildGraph on partial data and lock out further updates)
+            accIssuesRef.current = dedupeByKey([...accIssuesRef.current, ...msg.issues]);
+            setExpandProgress({ done: 0, total: msg.total });
+          } else if (msg.type === "children") {
+            accIssuesRef.current = dedupeByKey([...accIssuesRef.current, ...msg.issues]);
+            setExpandProgress({ done: msg.expanded, total: msg.total });
+          } else if (msg.type === "error") {
+            if (msg.epicKey === "") {
+              // Fatal top-level error (e.g. getEpics failed)
+              fatalError = true;
+              setError(msg.error);
+              setLoading(false);
+            }
+            // Per-epic errors are non-fatal — the graph keeps building
+          } else if (msg.type === "done") {
+            if (!fatalError) {
+              // Flush the complete accumulated set to state exactly once —
+              // GraphView will run buildGraph on the full dataset
+              setIssues(accIssuesRef.current);
+              setLastUpdated(new Date());
+              setExpandProgress(null);
+              setLoading(false);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      if (err instanceof Error && err.name === "AbortError") return; // navigation away
+      setError(err instanceof Error ? err.message : "Unknown error");
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     if (!projectKey) return;
     isMountedRef.current = true;
-    hasLoadedRef.current = false;
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoading(true);
-    fetchIssues(projectKey)
-      .then((data) => {
-        if (!isMountedRef.current) return;
-        setIssues(data);
-        setLatestIssues(data);
-        setLastUpdated(new Date());
-        hasLoadedRef.current = true;
-      })
-      .catch((e: Error) => {
-        if (!isMountedRef.current) return;
-        setError(e.message);
-      })
-      .finally(() => {
-        if (isMountedRef.current) setLoading(false);
-      });
+    void streamIssues(projectKey);
 
     return () => {
       isMountedRef.current = false;
+      abortRef.current?.abort();
     };
-  }, [projectKey, fetchIssues]);
+  }, [projectKey, streamIssues]);
 
-  useEffect(() => {
-    if (!projectKey || error) return;
-
-    const id = setInterval(async () => {
-      if (!hasLoadedRef.current) return;
-      try {
-        const data = await fetchIssues(projectKey);
-        if (!isMountedRef.current) return;
-        setLatestIssues(data);
-        setLastUpdated(new Date());
-      } catch {
-        // Silently swallow polling errors
-      }
-    }, POLL_INTERVAL_MS);
-
-    return () => clearInterval(id);
-  }, [projectKey, error, fetchIssues]);
+  // Derive latestIssues — for the project graph we just use current issues
+  // (no background polling needed; user can navigate away and back to refresh)
+  const latestIssues = issues;
 
   return (
     <div className="flex flex-col h-screen bg-slate-50">
@@ -152,14 +249,14 @@ export default function ProjectGraphPage() {
         <span className="text-[11px] text-slate-400 font-medium">All Epics</span>
 
         {/* Issue count */}
-        {!loading && !error && issues.length > 0 && (
+        {!loading && !error && expandProgress === null && issues.length > 0 && (
           <span className="text-[11px] text-slate-400 font-medium">
             · {issues.length} issue{issues.length !== 1 ? "s" : ""}
           </span>
         )}
 
-        {/* Live badge */}
-        {!loading && !error && issues.length > 0 && (
+        {/* Live badge — only once streaming is complete */}
+        {!loading && !error && expandProgress === null && issues.length > 0 && lastUpdated !== null && (
           <LiveBadge seconds={secondsSince} />
         )}
       </header>
@@ -168,14 +265,20 @@ export default function ProjectGraphPage() {
       <div className="flex flex-1 min-h-0 relative">
         {/* Graph */}
         <div className={`relative ${selectedKey ? "w-[75%]" : "w-full"} transition-[width] duration-200`}>
-          {loading && (
+        {(loading || expandProgress !== null) && (
             <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
               <div className="flex flex-col items-center gap-4">
                 <div className="relative w-10 h-10">
                   <div className="absolute inset-0 rounded-full border-2 border-indigo-100" />
                   <div className="absolute inset-0 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin" />
                 </div>
-                <p className="text-sm text-slate-400 font-medium">Loading epics…</p>
+                {expandProgress ? (
+                  <p className="text-sm text-slate-400 font-medium">
+                    Loading {expandProgress.done} / {expandProgress.total} epics…
+                  </p>
+                ) : (
+                  <p className="text-sm text-slate-400 font-medium">Loading epics…</p>
+                )}
               </div>
             </div>
           )}
@@ -201,7 +304,7 @@ export default function ProjectGraphPage() {
             </div>
           )}
 
-          {!loading && !error && issues.length === 0 && (
+          {!loading && !error && issues.length === 0 && expandProgress === null && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
                 <p className="text-slate-400 text-sm">No epics found for this project.</p>

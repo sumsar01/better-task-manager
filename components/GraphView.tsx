@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
-  Background,
   Controls,
   MiniMap,
   useNodesState,
@@ -15,17 +14,18 @@ import "@xyflow/react/dist/style.css";
 
 import IssueNode from "./IssueNode";
 import TaskGroupNode from "./TaskGroupNode";
+import EpicGroupNode from "./EpicGroupNode";
 import ElkEdge from "./ElkEdge";
 import Legend from "./Legend";
 import { buildGraph, buildEdgesOnly, STATUS_COLORS, STATUS_TEXT_COLORS } from "@/lib/buildGraph";
 import { diffIssues } from "@/lib/diffGraph";
 import type { JiraIssue } from "@/lib/jira";
-import type { IssueNodeData } from "@/lib/buildGraph";
+import type { IssueNodeData, EpicGroupNodeData } from "@/lib/buildGraph";
 
-// The graph can contain mixed node types (issueNode + taskGroupNode)
+// The graph can contain mixed node types (issueNode + taskGroupNode + epicGroupNode)
 type AnyNode = Node;
 
-const nodeTypes = { issueNode: IssueNode, taskGroupNode: TaskGroupNode };
+const nodeTypes = { issueNode: IssueNode, taskGroupNode: TaskGroupNode, epicGroupNode: EpicGroupNode };
 const edgeTypes = { elkEdge: ElkEdge };
 const FIT_VIEW_OPTIONS = { padding: 0.2 } as const;
 const PRO_OPTIONS = { hideAttribution: true } as const;
@@ -42,6 +42,7 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
   const [nodes, setNodes, onNodesChange] = useNodesState<AnyNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const layoutDoneRef = useRef(false);
+  const nodesReadyRef = useRef(false);
   // Stable ref to current edges — allows reading edge topology without stale closures
   const edgesRef = useRef<Edge[]>(edges);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
@@ -59,8 +60,11 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
     if (layoutDoneRef.current || issues.length === 0) return;
     layoutDoneRef.current = true;
     buildGraph(issues).then(({ nodes: n, edges: e }) => {
+      nodesReadyRef.current = true;
       setNodes(n as AnyNode[]);
       setEdges(e);
+    }).catch(() => {
+      // Layout failed — leave canvas empty; user can refresh
     });
   }, [issues, setNodes, setEdges]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -70,7 +74,10 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
 
   // ── In-place patch when latestIssues changes ────────────────────────────
   useEffect(() => {
+    // Don't process patches until the initial ELK layout has been applied.
+    // This prevents the polling diff from racing against the async buildGraph call.
     if (!latestIssues || latestIssues.length === 0) return;
+    if (!nodesReadyRef.current) return;
 
     const diff = diffIssues(prevIssuesRef.current, latestIssues);
     if (!diff.hasChanges) return;
@@ -215,7 +222,10 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: AnyNode) => {
-      const key = node.id;
+      const key =
+        node.type === "epicGroupNode"
+          ? (node.data as EpicGroupNodeData).epicKey
+          : node.id;
       if (key === selectedKey) {
         setSelectedKey(null);
         highlightConnected(null);
@@ -250,9 +260,10 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
         fitViewOptions={FIT_VIEW_OPTIONS}
         minZoom={0.1}
         maxZoom={2}
+        nodesDraggable={false}
+        onlyRenderVisibleElements
         proOptions={PRO_OPTIONS}
       >
-        <Background color="#e2e8f0" gap={20} />
         <Controls />
         <MiniMap
           nodeColor={miniMapNodeColor}

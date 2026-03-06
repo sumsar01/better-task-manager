@@ -1,6 +1,5 @@
 const LEGEND_ITEMS = [
   { color: "#ef4444", label: "Blocks", dash: false },
-  { color: "#3b82f6", label: "Subtask", dash: true },
   { color: "#94a3b8", label: "Relates to", dash: false },
   { color: "#a855f7", label: "Clones", dash: false },
 ];

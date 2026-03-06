@@ -24,11 +24,33 @@ function avatarInitials(name: string): string {
 type IssueNodeType = Node<IssueNodeData, "issueNode">;
 
 function IssueNode({ data, selected }: NodeProps<IssueNodeType>) {
-  const typeInfo = ISSUE_TYPE_LABEL[data.issueType] ?? { short: data.issueType, color: "#64748b", bg: "#f1f5f9" };
-  // Subtask nodes are slightly narrower to fit inside their group container.
   // Standalone epic nodes are wider + amber-bordered to stand out from task nodes.
-  const width = data.isSubtask ? 240 : data.isEpicStandalone ? 320 : 280;
   const borderColor = data.isEpicStandalone ? "#fbbf24" : data.bgColor;
+
+  // ── Compact chip for subtask nodes ───────────────────────────────────────
+  // Subtasks show only the title. The left border color communicates status.
+  if (data.isSubtask) {
+    return (
+      <div
+        style={{
+          borderLeft: `4px solid ${borderColor}`,
+          width: 220,
+          boxShadow: selected
+            ? `0 0 0 2px #6366f1, 0 4px 16px rgba(99,102,241,0.18), 0 1px 4px rgba(0,0,0,0.08)`
+            : "0 1px 3px rgba(0,0,0,0.07), 0 4px 10px rgba(0,0,0,0.05)",
+        }}
+        className="bg-white rounded-lg overflow-hidden transition-[box-shadow,border-color,opacity,transform] duration-150 border border-slate-200/80 cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_0_0_2px_#a5b4fc,_0_6px_16px_rgba(99,102,241,0.12)] hover:border-indigo-200/80 px-2.5 py-1.5"
+      >
+        <div className="text-[12px] font-medium text-slate-800 leading-snug line-clamp-2">
+          {data.summary}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Full card for regular task / epic nodes ───────────────────────────────
+  const typeInfo = ISSUE_TYPE_LABEL[data.issueType] ?? { short: data.issueType, color: "#64748b", bg: "#f1f5f9" };
+  const width = data.isEpicStandalone ? 320 : 280;
   const cardBg = data.isEpicStandalone ? "bg-amber-50/40" : "bg-white";
 
   return (

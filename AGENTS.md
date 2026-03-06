@@ -1,17 +1,28 @@
 # Agent Instructions
 
-This is a **Next.js 16 App Router** application that visualizes Jira task dependency graphs using React Flow and dagre layout. Package manager: **Bun**.
+This is a **Next.js 16 App Router** application (React 19) that visualizes Jira task dependency graphs using React Flow and ELK layout. Package manager: **Bun**.
 
 ## Build, Lint & Type Check
 
 ```bash
 bun run dev          # Start dev server (http://localhost:3000)
 bun run build        # Production build
-bun run lint         # ESLint (flat config, eslint-config-next)
-bunx tsc --noEmit    # TypeScript type check (no test runner configured yet)
+bun run lint         # ESLint (flat config — eslint-config-next core-web-vitals + typescript)
+bunx tsc --noEmit    # TypeScript type check
 ```
 
-> **No test framework is installed.** If adding tests, Vitest is the idiomatic choice for Next.js/Bun projects. To run a single Vitest test: `bunx vitest run path/to/file.test.ts`.
+> **No unit test framework is installed.** If adding tests, Vitest is the idiomatic choice for Next.js/Bun projects. To run a single Vitest test: `bunx vitest run path/to/file.test.ts`.
+
+### Screenshot / Visual Tests
+
+```bash
+bun run screenshot          # Take Puppeteer screenshots of all pages
+bun run screenshot home     # Home page only
+bun run screenshot graph    # Graph page only (requires Jira env vars)
+```
+
+The dev server is started automatically if nothing is listening on port 3000.
+Screenshots are saved to `tests/screenshots/output/`.
 
 ## Code Style
 
@@ -20,6 +31,7 @@ bunx tsc --noEmit    # TypeScript type check (no test runner configured yet)
 - Use `import type { ... }` for type-only imports — enforced by `eslint-config-next/typescript`.
 - Prefer `interface` for object shapes / props; `type` for unions, intersections, and aliases.
 - Use TypeScript generics where appropriate (e.g., `useState<JiraProject[]>([])`).
+- Use `satisfies` for inline type assertions on object literals (see `buildGraph.ts`).
 
 ### Imports
 - Use the `@/` path alias (maps to project root) for **cross-directory** imports:
@@ -37,21 +49,25 @@ bunx tsc --noEmit    # TypeScript type check (no test runner configured yet)
 | Entity | Convention | Example |
 |---|---|---|
 | React component files | PascalCase | `EpicPicker.tsx`, `GraphView.tsx` |
+| Custom hook files | camelCase | `useIssuePoller.ts`, `useSecondsTick.ts` |
 | Utility/lib files | camelCase | `buildGraph.ts`, `jira.ts` |
 | Components & types | PascalCase | `IssueNode`, `JiraProject`, `GraphData` |
 | Functions & variables | camelCase | `buildGraph`, `getEpics`, `authHeader` |
-| Constants | SCREAMING_SNAKE_CASE | `NODE_WIDTH`, `STATUS_COLORS` |
+| Constants | SCREAMING_SNAKE_CASE | `NODE_WIDTH`, `STATUS_COLORS`, `POLL_INTERVAL_MS` |
 
 ### Formatting
 - Double quotes for strings and JSX attributes.
 - Trailing semicolons everywhere.
 - Arrow functions for callbacks and inline handlers; `function` keyword for top-level named functions.
 - No Prettier config — formatting is not enforced beyond ESLint rules.
+- Numeric literals: use underscore separators for large numbers (e.g., `30_000`, `60_000`).
 
 ### Error Handling
 - API route handlers (`app/api/**/route.ts`) should return typed `NextResponse` with appropriate HTTP status codes.
 - Jira API errors should surface as `{ error: string }` JSON responses to the client.
 - Client-side fetch errors should be caught and stored in component state for display.
+- Background polling errors should be swallowed silently (do not interrupt the UI).
+- Always narrow `unknown` catch values: `const message = err instanceof Error ? err.message : "Unknown error"`.
 
 ## React & Next.js Patterns
 
@@ -60,6 +76,12 @@ bunx tsc --noEmit    # TypeScript type check (no test runner configured yet)
 - Client components: `EpicPicker.tsx`, `GraphView.tsx`, `IssueNode.tsx`, `app/graph/[epicKey]/page.tsx`.
 - Server components (no directive needed): `app/page.tsx`, `app/layout.tsx`, `Legend.tsx`.
 - Keep server components lean — no hooks, no browser APIs.
+
+### Custom Hooks
+- Live in `hooks/` at the project root.
+- `useIssuePoller` — fetches issues on mount, polls every 30 s, returns `{ issues, latestIssues, loading, error, lastUpdated }`. Use `issues` for the initial ELK layout and `latestIssues` for in-place diff patches.
+- `useSecondsTick` — utility hook for second-resolution time displays.
+- Always guard async state setters with a `isMountedRef` to avoid setting state on unmounted components.
 
 ### API Routes
 - Located at `app/api/**/route.ts` using named exports (`GET`, `POST`, etc.).
@@ -70,19 +92,60 @@ bunx tsc --noEmit    # TypeScript type check (no test runner configured yet)
 - Use `memo()` for expensive pure components (see `IssueNode.tsx`).
 - Use `useCallback` and `useMemo` to stabilize references passed to React Flow.
 - Prefer local `useState` — no global state library is used.
+- Define static objects (`nodeTypes`, `edgeTypes`, `FIT_VIEW_OPTIONS`) outside the component to avoid re-creation on render.
 
 ### Data Fetching
 - Data is fetched client-side via `fetch()` in `useEffect` hooks (no SWR, React Query, or Server Actions).
 - Typed response shapes are defined in `lib/jira.ts` — always use them.
 
+## Graph / Layout Architecture
+
+- Layout engine is **ELK** (eclipse layout kernel) via `elkjs`, not dagre. Dagre is a dependency but no longer used.
+- `buildGraph(issues)` — async, runs a full ELK layout. Call once on initial load.
+- `buildEdgesOnly(issues)` — synchronous, skips layout. Used in polling diff paths.
+- When multiple epics are present, a two-level nested ELK layout is applied: children inside each epic group are laid out first, then epic groups are positioned at the top level.
+- `diffGraph.ts` (`diffIssues`) computes added/removed/changed issues between poll snapshots. In-place patching preserves node positions.
+- `POLYLINE` edge routing is used instead of `ORTHOGONAL` — the ORTHOGONAL router crashes on certain DAG topologies in `elk.bundled.js`.
+
 ## Project Layout
 
 ```
-app/           # Next.js App Router (pages, layouts, API routes)
-  api/jira/    # Jira proxy routes (epics, issues, projects)
-  graph/       # Dynamic graph page [epicKey]
-components/    # Reusable React components
-lib/           # Pure utility modules (Jira client, graph builder)
+app/                              # Next.js App Router
+  page.tsx                        # Home — project + epic picker
+  layout.tsx                      # Root layout
+  globals.css                     # Tailwind base styles
+  api/jira/                       # Jira proxy routes (never expose credentials to client)
+    projects/route.ts             # GET: list projects
+    epics/route.ts                # GET ?project=KEY: epics in project
+    issues/route.ts               # GET ?epic=KEY: issues in epic (2 levels)
+    issues/project/route.ts       # GET ?project=KEY: issues scoped to a project
+    issue/[key]/route.ts          # GET: single issue detail
+  graph/[epicKey]/page.tsx        # Graph view for a selected epic
+  graph/project/[projectKey]/     # Project-scoped graph view
+components/                       # Reusable React components
+  GraphView.tsx                   # React Flow canvas + polling integration
+  IssueNode.tsx                   # Custom node card (key, summary, status, assignee)
+  EpicGroupNode.tsx               # Epic container node
+  TaskGroupNode.tsx               # Subtask group container node
+  ElkEdge.tsx                     # Custom edge renderer using ELK bend points
+  EpicPicker.tsx                  # Two-step project/epic dropdown
+  IssueDetailPanel.tsx            # Side panel for issue details
+  issue-detail/                   # Sub-components for the detail panel
+  Legend.tsx                      # Edge color legend overlay (server component)
+  LiveBadge.tsx                   # "Live" indicator badge
+hooks/                            # Custom React hooks
+  useIssuePoller.ts               # Fetch + 30 s polling for issues
+  useSecondsTick.ts               # Second-resolution timer
+lib/                              # Pure utility modules
+  jira.ts                         # Typed Jira Cloud REST API helpers + response types
+  buildGraph.ts                   # Jira issues → React Flow nodes + ELK layout
+  diffGraph.ts                    # Issue diff for in-place graph patching
+  concurrency.ts                  # Async concurrency utilities
+  adfToHtml.ts                    # Atlassian Document Format → HTML converter
+tests/
+  screenshots/                    # Puppeteer visual regression snapshots
+    run.ts                        # Screenshot runner entry point
+    helpers.ts                    # Shared Puppeteer utilities
 ```
 
 ## Environment Variables

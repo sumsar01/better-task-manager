@@ -17,11 +17,13 @@ interface ElkEdgeData {
 
 /**
  * Custom React Flow edge renderer that uses ELK bend points for
- * obstacle-aware orthogonal routing.
+ * obstacle-aware routing, rendered as smooth Catmull-Rom spline curves.
  *
  * ELK computes the full path including start/end points and all bend points,
  * which are stored on edge.data.bendPoints after layout. This renderer
- * converts those points into an SVG polyline path.
+ * converts those points into a smooth cubic Bézier SVG path using
+ * Catmull-Rom → cubic Bézier conversion, making overlapping edges visually
+ * distinguishable.
  *
  * Falls back to a straight line between sourceX/sourceY and targetX/targetY
  * when no bend points are present (e.g. disconnected or single-node graphs).
@@ -46,15 +48,39 @@ function ElkEdge({
 
   const { edgePath, labelX, labelY } = useMemo(() => {
     if (bendPoints && bendPoints.length >= 2) {
-      const [first, ...rest] = bendPoints;
-      const path = `M ${first.x} ${first.y} ` + rest.map((p) => `L ${p.x} ${p.y}`).join(" ");
-      const midIdx = Math.floor(bendPoints.length / 2);
-      const a = bendPoints[midIdx - 1] ?? bendPoints[0];
-      const b = bendPoints[midIdx] ?? bendPoints[bendPoints.length - 1];
+      // Catmull-Rom → cubic Bézier conversion for smooth curves through ELK bend points.
+      // For each segment P[i] → P[i+1], control points are:
+      //   cp1 = P[i]   + (P[i+1] - P[i-1]) * tension / 2
+      //   cp2 = P[i+1] - (P[i+2] - P[i])   * tension / 2
+      // Out-of-bounds indices clamp to the nearest endpoint.
+      const TENSION = 0.4;
+      const pts = bendPoints;
+      const n = pts.length;
+      const p = (i: number): ElkPoint => pts[Math.max(0, Math.min(n - 1, i))];
+
+      let path = `M ${pts[0].x} ${pts[0].y}`;
+      for (let i = 0; i < n - 1; i++) {
+        const cp1x = p(i).x + (p(i + 1).x - p(i - 1).x) * TENSION / 2;
+        const cp1y = p(i).y + (p(i + 1).y - p(i - 1).y) * TENSION / 2;
+        const cp2x = p(i + 1).x - (p(i + 2).x - p(i).x) * TENSION / 2;
+        const cp2y = p(i + 1).y - (p(i + 2).y - p(i).y) * TENSION / 2;
+        path += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${p(i + 1).x} ${p(i + 1).y}`;
+      }
+
+      const midIdx = Math.floor(n / 2);
+      const a = pts[midIdx - 1] ?? pts[0];
+      const b = pts[midIdx] ?? pts[n - 1];
       return { edgePath: path, labelX: (a.x + b.x) / 2, labelY: (a.y + b.y) / 2 };
     }
+    // Fallback: vertical-bias cubic Bézier between source and target handles.
+    // Control points bow outward proportional to the vertical distance,
+    // producing a smooth S-curve that reads clearly in top-to-bottom layouts.
+    const dy = Math.abs(targetY - sourceY);
+    const offset = Math.max(dy * 0.5, 40);
+    const fallbackPath =
+      `M ${sourceX} ${sourceY} C ${sourceX} ${sourceY + offset} ${targetX} ${targetY - offset} ${targetX} ${targetY}`;
     return {
-      edgePath: `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`,
+      edgePath: fallbackPath,
       labelX: (sourceX + targetX) / 2,
       labelY: (sourceY + targetY) / 2,
     };
