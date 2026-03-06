@@ -405,7 +405,7 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
         }
         const src = groupOrKey(issue.key);
         const tgt = groupOrKey(link.outwardIssue.key);
-        const edgeId = `${src}-${tgt}-${typeName}`;
+        const edgeId = `${src}-${tgt}-${getEdgeLabel(typeName)}`;
         if (!edgeSet.has(edgeId)) {
           edgeSet.add(edgeId);
           const color = getEdgeColor(typeName);
@@ -440,7 +440,7 @@ export async function buildGraph(issues: JiraIssue[]): Promise<GraphData> {
         }
         const source = groupOrKey(rawBlocker);
         const target = groupOrKey(rawBlocked);
-        const edgeId = `${source}-${target}-${typeName}`;
+        const edgeId = `${source}-${target}-${getEdgeLabel(typeName)}`;
         if (!edgeSet.has(edgeId)) {
           edgeSet.add(edgeId);
           const color = getEdgeColor(normalised);
