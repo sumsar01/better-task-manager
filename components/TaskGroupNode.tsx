@@ -29,7 +29,7 @@ function TaskGroupNode({ data }: NodeProps<TaskGroupNodeType>) {
 
       <div
         style={{ width: totalWidth, height: totalHeight }}
-        className="relative rounded-[14px] border border-dashed border-slate-300/50 bg-white/70"
+        className="relative rounded-[14px] border border-dashed border-slate-300/50 dark:border-slate-600/50 bg-white/70 dark:bg-slate-800/50"
       />
 
       {/* Source handle at the bottom of the group — dependency edges exit here,

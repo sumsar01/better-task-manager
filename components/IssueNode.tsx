@@ -12,6 +12,9 @@ const ISSUE_TYPE_LABEL: Record<string, { short: string; color: string; bg: strin
   Epic:    { short: "Epic",    color: "#d97706", bg: "#fef3c7" },
 };
 
+/** Orange accent for external-dependency tasks — overrides the status border color. */
+const EXTERNAL_BORDER_COLOR = "#f97316"; // orange-500
+
 function avatarInitials(name: string): string {
   return name
     .split(" ")
@@ -24,11 +27,15 @@ function avatarInitials(name: string): string {
 type IssueNodeType = Node<IssueNodeData, "issueNode">;
 
 function IssueNode({ data, selected }: NodeProps<IssueNodeType>) {
-  // Standalone epic nodes are wider + amber-bordered to stand out from task nodes.
-  const borderColor = data.isEpicStandalone ? "#fbbf24" : data.bgColor;
+  // External tasks get an orange border regardless of status; standalone epics stay amber.
+  const borderColor = data.isExternal
+    ? EXTERNAL_BORDER_COLOR
+    : data.isEpicStandalone
+      ? "#fbbf24"
+      : data.bgColor;
 
   // ── Compact chip for subtask nodes ───────────────────────────────────────
-  // Subtasks show only the title. The left border color communicates status.
+  // Subtasks show only the title. The left border color communicates status (or external).
   if (data.isSubtask) {
     return (
       <div
@@ -39,10 +46,21 @@ function IssueNode({ data, selected }: NodeProps<IssueNodeType>) {
             ? `0 0 0 2px #6366f1, 0 4px 16px rgba(99,102,241,0.18), 0 1px 4px rgba(0,0,0,0.08)`
             : "0 1px 3px rgba(0,0,0,0.07), 0 4px 10px rgba(0,0,0,0.05)",
         }}
-        className="bg-white rounded-lg overflow-hidden transition-[box-shadow,border-color,opacity,transform] duration-150 border border-slate-200/80 cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_0_0_2px_#a5b4fc,_0_6px_16px_rgba(99,102,241,0.12)] hover:border-indigo-200/80 px-2.5 py-1.5"
+        className="bg-white dark:bg-slate-800 rounded-lg overflow-hidden transition-[box-shadow,border-color,opacity,transform] duration-150 border border-slate-200/80 dark:border-slate-700/80 cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_0_0_2px_#a5b4fc,_0_6px_16px_rgba(99,102,241,0.12)] hover:border-indigo-200/80 dark:hover:border-indigo-600/60 px-2.5 py-1.5"
       >
-        <div className="text-[12px] font-medium text-slate-800 leading-snug line-clamp-2">
-          {data.summary}
+        <div className="flex items-center gap-1.5">
+          {data.isExternal && (
+            <span
+              className="text-[9px] font-semibold px-1 py-0.5 rounded tracking-wide shrink-0"
+              data-external="true"
+              style={{ color: "#9a3412", background: "#ffedd5" }}
+            >
+              ↗ Ext
+            </span>
+          )}
+          <div className="text-[12px] font-medium text-slate-800 dark:text-slate-100 leading-snug line-clamp-2">
+            {data.summary}
+          </div>
         </div>
       </div>
     );
@@ -51,7 +69,9 @@ function IssueNode({ data, selected }: NodeProps<IssueNodeType>) {
   // ── Full card for regular task / epic nodes ───────────────────────────────
   const typeInfo = ISSUE_TYPE_LABEL[data.issueType] ?? { short: data.issueType, color: "#64748b", bg: "#f1f5f9" };
   const width = data.isEpicStandalone ? 320 : 280;
-  const cardBg = data.isEpicStandalone ? "bg-amber-50/40" : "bg-white";
+  const cardBg = data.isEpicStandalone
+    ? "bg-amber-50/40 dark:bg-amber-950/20"
+    : "bg-white dark:bg-slate-800";
 
   return (
     <>
@@ -71,25 +91,38 @@ function IssueNode({ data, selected }: NodeProps<IssueNodeType>) {
             ? `0 0 0 2px #6366f1, 0 4px 20px rgba(99,102,241,0.18), 0 1px 4px rgba(0,0,0,0.08)`
             : "0 1px 3px rgba(0,0,0,0.07), 0 4px 12px rgba(0,0,0,0.06)",
         }}
-        className={`${cardBg} rounded-xl flex flex-col overflow-hidden transition-[box-shadow,border-color,opacity,transform] duration-150 border border-slate-200/80 cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_0_0_2px_#a5b4fc,_0_6px_20px_rgba(99,102,241,0.15),_0_1px_4px_rgba(0,0,0,0.08)] hover:border-indigo-200/80`}
+        className={`${cardBg} rounded-xl flex flex-col overflow-hidden transition-[box-shadow,border-color,opacity,transform] duration-150 border border-slate-200/80 dark:border-slate-700/80 cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_0_0_2px_#a5b4fc,_0_6px_20px_rgba(99,102,241,0.15),_0_1px_4px_rgba(0,0,0,0.08)] hover:border-indigo-200/80 dark:hover:border-indigo-600/60`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5 gap-2">
-          {/* Type pill */}
-          <span
-            className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md tracking-wide"
-            style={{ color: typeInfo.color, background: typeInfo.bg }}
-          >
-            {typeInfo.short}
-          </span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            {/* Type pill — data-issue-type attr lets globals.css override colors in dark mode */}
+            <span
+              className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md tracking-wide shrink-0"
+              data-issue-type={data.issueType}
+              style={{ color: typeInfo.color, background: typeInfo.bg }}
+            >
+              {typeInfo.short}
+            </span>
+            {/* External badge */}
+            {data.isExternal && (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md tracking-wide shrink-0"
+                data-external="true"
+                style={{ color: "#9a3412", background: "#ffedd5" }}
+              >
+                ↗ External
+              </span>
+            )}
+          </div>
           {/* Issue key */}
-          <span className="text-[11px] font-mono font-semibold text-slate-400 shrink-0">
+          <span className="text-[11px] font-mono font-semibold text-slate-400 dark:text-slate-500 shrink-0">
             {data.key}
           </span>
         </div>
 
         {/* Summary */}
-        <div className="px-3 pb-2 text-[13px] font-medium text-slate-800 leading-snug line-clamp-2">
+        <div className="px-3 pb-2 text-[13px] font-medium text-slate-800 dark:text-slate-100 leading-snug line-clamp-2">
           {data.summary}
         </div>
 

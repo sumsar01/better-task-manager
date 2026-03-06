@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import IssueHeader from "./IssueHeader";
 import IssueMetadata from "./IssueMetadata";
 import IssueRelations from "./IssueRelations";
@@ -8,6 +8,8 @@ import IssueDescription from "./IssueDescription";
 import IssueComments from "./IssueComments";
 import PanelSkeleton from "./PanelSkeleton";
 import type { IssueDetail, IssueDetailPanelProps } from "./types";
+
+const MAX_DISPLAYED_COMMENTS = 20;
 
 export default function IssueDetailPanel({
   issueKey,
@@ -18,7 +20,6 @@ export default function IssueDetailPanel({
   const [issue, setIssue] = useState<IssueDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,12 +54,11 @@ export default function IssueDetailPanel({
 
   const f = issue?.fields;
   const storyPoints = f?.customfield_10028 ?? f?.customfield_10016 ?? null;
-  const comments = f?.comment?.comments?.slice(-20) ?? [];
+  const comments = f?.comment?.comments?.slice(-MAX_DISPLAYED_COMMENTS) ?? [];
 
   return (
     <aside
-      ref={panelRef}
-      className="flex flex-col h-full w-full bg-white overflow-hidden"
+      className="flex flex-col h-full w-full bg-white dark:bg-slate-900 overflow-hidden"
     >
       <IssueHeader
         issueKey={issueKey}
@@ -72,9 +72,9 @@ export default function IssueDetailPanel({
         {loading && <PanelSkeleton />}
 
         {error && (
-          <div className="mx-5 mt-5 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-            <p className="text-sm font-semibold text-red-700 mb-0.5">Failed to load issue</p>
-            <p className="text-sm text-red-600">{error}</p>
+          <div className="mx-5 mt-5 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800/60 rounded-xl px-4 py-3">
+            <p className="text-sm font-semibold text-red-700 dark:text-red-400 mb-0.5">Failed to load issue</p>
+            <p className="text-sm text-red-600 dark:text-red-500">{error}</p>
           </div>
         )}
 

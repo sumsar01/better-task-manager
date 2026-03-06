@@ -5,7 +5,7 @@ A personal Next.js tool that visualizes Jira epic task dependencies as an intera
 ## Features
 
 - Two-step picker: project → epic
-- Interactive React Flow graph with dagre layout
+- Interactive React Flow graph with ELK layout
 - Nodes color-coded by status (To Do / In Progress / Done)
 - Edges color-coded by relationship type (blocks / subtask / relates to)
 - Click a node to highlight its direct connections
@@ -45,9 +45,9 @@ Open [http://localhost:3000](http://localhost:3000).
 
 | | |
 |---|---|
-| Framework | Next.js 15 (App Router) |
+| Framework | Next.js 16 (App Router) |
 | Graph | React Flow (`@xyflow/react`) |
-| Layout | Dagre |
+| Layout | ELK (Eclipse Layout Kernel) |
 | Styling | Tailwind CSS |
 | Runtime | Bun |
 

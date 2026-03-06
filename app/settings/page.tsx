@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import type { MaskedConfig } from "@/app/api/config/route";
+import GearIcon from "@/components/icons/GearIcon";
+import BackgroundBlobs from "@/components/BackgroundBlobs";
 
 type TestState =
   | { status: "idle" }
@@ -127,6 +129,11 @@ export default function SettingsPage() {
 
   // ── Jira handlers ──────────────────────────────────────────────────────────
 
+  function resetJiraFeedback() {
+    setTestState({ status: "idle" });
+    setJiraSaveState({ status: "idle" });
+  }
+
   async function handleTest() {
     setTestState({ status: "testing" });
     try {
@@ -200,8 +207,7 @@ export default function SettingsPage() {
 
   // ── Derived flags ──────────────────────────────────────────────────────────
 
-  const canTest = baseUrl.trim() !== "" && email.trim() !== "" && apiToken.trim() !== "";
-  const canJiraSave = baseUrl.trim() !== "" && email.trim() !== "" && apiToken.trim() !== "";
+  const canJiraSubmit = baseUrl.trim() !== "" && email.trim() !== "" && apiToken.trim() !== "";
   const canBeadsSave = beadsReposDir.trim() !== "";
   const isTesting = testState.status === "testing";
   const isJiraSaving = jiraSaveState.status === "saving";
@@ -210,14 +216,7 @@ export default function SettingsPage() {
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-12 relative overflow-hidden">
       {/* Gradient blobs */}
-      <div
-        className="pointer-events-none absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full opacity-30"
-        style={{ background: "radial-gradient(circle, #e0e7ff 0%, transparent 70%)" }}
-      />
-      <div
-        className="pointer-events-none absolute -bottom-40 -right-40 w-[500px] h-[500px] rounded-full opacity-20"
-        style={{ background: "radial-gradient(circle, #c7d2fe 0%, transparent 70%)" }}
-      />
+      <BackgroundBlobs topColor="#e0e7ff" bottomColor="#c7d2fe" />
 
       <div className="relative w-full max-w-md">
         {/* Header */}
@@ -234,10 +233,7 @@ export default function SettingsPage() {
 
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-md shadow-indigo-200 flex-shrink-0">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="white" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke="white" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <GearIcon size={18} className="text-white" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-slate-900 tracking-tight">Settings</h1>
@@ -273,7 +269,7 @@ export default function SettingsPage() {
                   id="baseUrl"
                   type="url"
                   value={baseUrl}
-                  onChange={(e) => { setBaseUrl(e.target.value); setTestState({ status: "idle" }); setJiraSaveState({ status: "idle" }); }}
+                  onChange={(e) => { setBaseUrl(e.target.value); resetJiraFeedback(); }}
                   placeholder="https://yourorg.atlassian.net"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
                 />
@@ -288,7 +284,7 @@ export default function SettingsPage() {
                   id="email"
                   type="email"
                   value={email}
-                  onChange={(e) => { setEmail(e.target.value); setTestState({ status: "idle" }); setJiraSaveState({ status: "idle" }); }}
+                  onChange={(e) => { setEmail(e.target.value); resetJiraFeedback(); }}
                   placeholder="you@yourorg.com"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
                 />
@@ -303,7 +299,7 @@ export default function SettingsPage() {
                   id="apiToken"
                   type="password"
                   value={apiToken}
-                  onChange={(e) => { setApiToken(e.target.value); setTestState({ status: "idle" }); setJiraSaveState({ status: "idle" }); }}
+                  onChange={(e) => { setApiToken(e.target.value); resetJiraFeedback(); }}
                   placeholder={tokenPlaceholder}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition font-mono"
                 />
@@ -322,22 +318,10 @@ export default function SettingsPage() {
 
               {/* Test result */}
               {testState.status === "success" && (
-                <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl px-3.5 py-2.5">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="flex-shrink-0" aria-hidden="true">
-                    <circle cx="8" cy="8" r="7" fill="#22c55e" />
-                    <path d="M5 8l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  Connected as <strong>{testState.displayName}</strong>
-                </div>
+                <SaveSuccess message={`Connected as ${testState.displayName}`} />
               )}
               {testState.status === "error" && (
-                <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="flex-shrink-0 mt-0.5" aria-hidden="true">
-                    <circle cx="8" cy="8" r="7" fill="#ef4444" />
-                    <path d="M8 5v3M8 11v.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                  </svg>
-                  {testState.message}
-                </div>
+                <SaveError message={testState.message} />
               )}
 
               {jiraSaveState.status === "success" && <SaveSuccess message="Jira settings saved." />}
@@ -348,7 +332,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={handleTest}
-                  disabled={!canTest || isTesting || isJiraSaving}
+                  disabled={!canJiraSubmit || isTesting || isJiraSaving}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
                 >
                   {isTesting ? (
@@ -358,7 +342,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={handleJiraSave}
-                  disabled={!canJiraSave || isJiraSaving || isTesting}
+                  disabled={!canJiraSubmit || isJiraSaving || isTesting}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition shadow-sm shadow-indigo-200"
                 >
                   {isJiraSaving ? (

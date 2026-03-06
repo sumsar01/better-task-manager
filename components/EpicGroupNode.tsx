@@ -55,7 +55,7 @@ function EpicGroupNode({ data, width, height }: NodeProps<EpicGroupNodeType>) {
             minHeight: 36,
           }}
         >
-          {!isUnassigned && (
+          {!isUnassigned && !epicKey.includes("__") && (
             <span
               style={{
                 fontSize: 11,

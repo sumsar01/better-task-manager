@@ -59,7 +59,11 @@ export function useIssuePoller(epicKey: string | undefined): UseIssuePollerResul
     };
   }, [epicKey]);
 
-  // Background polling
+  // Background polling — only starts when the initial fetch succeeded.
+  // NOTE: If the initial fetch fails (error is set), polling is intentionally
+  // skipped. It will not self-recover unless the component re-mounts or
+  // epicKey changes. If a retry mechanism is added in the future, reset `error`
+  // to null first so this effect re-runs and registers the interval.
   useEffect(() => {
     if (!epicKey || loading || error) return;
 

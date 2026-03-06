@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getEpics, getEpicChildren, getSubtasks } from "@/lib/jira";
-import type { JiraIssue } from "@/lib/jira";
 import { pLimit } from "@/lib/concurrency";
+import type { StreamMessage } from "@/lib/streamTypes";
 
 // Allow up to 60 seconds on Vercel Pro / similar platforms.
 // Streaming responses are not subject to the same hard timeout as regular
@@ -14,34 +14,6 @@ const EPIC_EXPAND_TIMEOUT_MS = 12_000;
 
 /** Max epics expanded concurrently. */
 const EXPAND_CONCURRENCY = 5;
-
-// ── NDJSON message types ──────────────────────────────────────────────────────
-
-interface EpicsMessage {
-  type: "epics";
-  issues: JiraIssue[];
-  total: number;
-}
-
-interface ChildrenMessage {
-  type: "children";
-  epicKey: string;
-  issues: JiraIssue[];
-  expanded: number;
-  total: number;
-}
-
-interface ErrorMessage {
-  type: "error";
-  epicKey: string;
-  error: string;
-}
-
-interface DoneMessage {
-  type: "done";
-}
-
-type StreamMessage = EpicsMessage | ChildrenMessage | ErrorMessage | DoneMessage;
 
 function encode(msg: StreamMessage): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(msg) + "\n");

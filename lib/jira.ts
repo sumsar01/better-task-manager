@@ -134,6 +134,7 @@ export interface JiraIssue {
     subtasks?: Array<{ id: string; key: string; fields: { summary: string; status: JiraStatus; issuetype: JiraIssueType } }>;
     issuelinks: JiraIssueLink[];
     priority?: { name: string; iconUrl?: string };
+    labels?: string[];
   };
 }
 
@@ -206,7 +207,7 @@ export async function getEpics(projectKey: string): Promise<JiraIssue[]> {
 export async function getEpicChildren(epicKey: string, signal?: AbortSignal): Promise<JiraIssue[]> {
   return searchIssues(
     `parent = "${epicKey}" ORDER BY created ASC`,
-    ["summary", "status", "issuetype", "assignee", "parent", "subtasks", "issuelinks", "priority"],
+    ["summary", "status", "issuetype", "assignee", "parent", "subtasks", "issuelinks", "priority", "labels"],
     signal,
   );
 }
@@ -217,7 +218,7 @@ export async function getSubtasks(parentKeys: string[], signal?: AbortSignal): P
   const inClause = parentKeys.map((k) => `"${k}"`).join(", ");
   return searchIssues(
     `parent in (${inClause}) ORDER BY created ASC`,
-    ["summary", "status", "issuetype", "assignee", "parent", "subtasks", "issuelinks", "priority"],
+    ["summary", "status", "issuetype", "assignee", "parent", "subtasks", "issuelinks", "priority", "labels"],
     signal,
   );
 }

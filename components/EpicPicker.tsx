@@ -14,30 +14,12 @@ import {
   removeRecentGraph,
   type RecentGraphEntry,
 } from "@/lib/homePrefs";
+import ChevronDown from "@/components/icons/ChevronDown";
+import ErrorBanner from "@/components/ErrorBanner";
 
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
-function ChevronDown() {
-  return (
-    <svg
-      className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400"
-      width="14"
-      height="14"
-      viewBox="0 0 14 14"
-      fill="none"
-    >
-      <path
-        d="M3 5l4 4 4-4"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
 
 function RecentEpicIcon() {
   return (
@@ -264,11 +246,7 @@ export default function EpicPicker() {
         </div>
       )}
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-600 rounded-xl px-4 py-3 text-xs leading-relaxed">
-          <span className="font-semibold">Error: </span>{error}
-        </div>
-      )}
+      {error && <ErrorBanner message={error} />}
 
       {/* Project */}
       <div className="flex flex-col gap-1.5">

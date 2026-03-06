@@ -2,6 +2,12 @@
  * Run an array of async task factories with at most `limit` concurrent
  * executions at any given time.  Results are returned in the same order as
  * the input tasks (analogous to Promise.all, but throttled).
+ *
+ * CONTRACT: Every task function MUST NOT throw (i.e. must handle its own
+ * errors internally). If a task rejects, the entire batch rejects immediately
+ * and the remaining results are discarded — matching the semantics of
+ * Promise.all. Callers that need per-task fault tolerance should wrap each
+ * task in try/catch before passing it to pLimit.
  */
 export async function pLimit<T>(
   tasks: Array<() => Promise<T>>,

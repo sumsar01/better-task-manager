@@ -15,11 +15,11 @@ export default function IssueDescription({ description }: IssueDescriptionProps)
       <SectionHeader title="Description" />
       {descHtml ? (
         <div
-          className="adf-content text-sm text-slate-700 leading-relaxed"
+          className="adf-content text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
           dangerouslySetInnerHTML={{ __html: descHtml }}
         />
       ) : (
-        <p className="text-sm text-slate-400 italic">No description provided.</p>
+        <p className="text-sm text-slate-400 dark:text-slate-500 italic">No description provided.</p>
       )}
     </Section>
   );
