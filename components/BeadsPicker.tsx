@@ -2,9 +2,19 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { BeadsRepo } from "@/lib/beads";
-import ChevronDown from "@/components/icons/ChevronDown";
 import ErrorBanner from "@/components/ErrorBanner";
+
+const selectClass = cn(
+  "w-full appearance-none border border-input rounded-xl px-3.5 py-2.5 text-sm bg-background text-foreground",
+  "focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring",
+  "disabled:opacity-40 disabled:bg-muted disabled:cursor-not-allowed",
+  "cursor-pointer transition pr-8 shadow-sm"
+);
 
 export default function BeadsPicker() {
   const router = useRouter();
@@ -46,7 +56,7 @@ export default function BeadsPicker() {
         </label>
         <div className="relative">
           <select
-            className="w-full appearance-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 disabled:opacity-40 disabled:bg-slate-50 disabled:cursor-not-allowed cursor-pointer transition pr-8 shadow-sm"
+            className={selectClass}
             value={selectedRepo}
             onChange={(e) => setSelectedRepo(e.target.value)}
             disabled={loading}
@@ -60,25 +70,19 @@ export default function BeadsPicker() {
               </option>
             ))}
           </select>
-          <ChevronDown />
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground h-3.5 w-3.5" />
         </div>
       </div>
 
       {/* CTA */}
       <div className="mt-1">
-        <button
+        <Button
           onClick={handleViewGraph}
           disabled={!selectedRepo}
-          className="relative w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-white transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none hover:enabled:scale-[1.02] hover:enabled:brightness-110 cursor-pointer"
-          style={{
-            background: selectedRepo
-              ? "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)"
-              : "#94a3b8",
-            boxShadow: selectedRepo ? "0 4px 14px rgba(124,58,237,0.4)" : "none",
-          }}
+          className="w-full bg-secondary hover:bg-secondary/90 text-secondary-foreground"
         >
           View Task Graph →
-        </button>
+        </Button>
       </div>
     </div>
   );

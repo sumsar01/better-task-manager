@@ -2,6 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown, X } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { JiraProject, JiraIssue } from "@/lib/jira";
 import {
   getLastProject,
@@ -14,7 +18,6 @@ import {
   removeRecentGraph,
   type RecentGraphEntry,
 } from "@/lib/homePrefs";
-import ChevronDown from "@/components/icons/ChevronDown";
 import ErrorBanner from "@/components/ErrorBanner";
 
 // ---------------------------------------------------------------------------
@@ -70,26 +73,32 @@ function RecentItem({ entry, onClick, onRemove }: RecentItemProps) {
           <span className="text-[10px] text-slate-400 truncate leading-snug">{subtitle}</span>
         </span>
       </button>
-      <button
+      <Button
+        variant="ghost"
+        size="icon"
         onClick={(e) => {
           e.stopPropagation();
           onRemove();
         }}
-        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-0.5 text-slate-300 hover:text-slate-500 cursor-pointer"
+        className="shrink-0 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-slate-500"
         aria-label="Remove from recents"
       >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <path
-            d="M2 2l8 8M10 2l-8 8"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-          />
-        </svg>
-      </button>
+        <X className="h-3 w-3" />
+      </Button>
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Shared select styles
+// ---------------------------------------------------------------------------
+
+const selectClass = cn(
+  "w-full appearance-none border border-input rounded-xl px-3.5 py-2.5 text-sm bg-background text-foreground",
+  "focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring",
+  "disabled:opacity-40 disabled:bg-muted disabled:cursor-not-allowed",
+  "cursor-pointer transition pr-8 shadow-sm"
+);
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -130,7 +139,6 @@ export default function EpicPicker() {
       .then((data: JiraProject[]) => {
         setProjects(data);
         setJiraConnected(true);
-        // Pre-select last project if it still exists in the list
         const last = getLastProject();
         if (last && data.some((p: JiraProject) => p.key === last)) {
           setSelectedProject(last);
@@ -160,7 +168,6 @@ export default function EpicPicker() {
       })
       .then((data: JiraIssue[]) => {
         setEpics(data);
-        // Pre-select last epic only if it belongs to this project
         const lastEpic = getLastEpic();
         if (lastEpic && data.some((e: JiraIssue) => e.key === lastEpic)) {
           setSelectedEpic(lastEpic);
@@ -253,7 +260,7 @@ export default function EpicPicker() {
         <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Project</label>
         <div className="relative">
           <select
-            className="w-full appearance-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-40 disabled:bg-slate-50 disabled:cursor-not-allowed cursor-pointer transition pr-8 shadow-sm"
+            className={selectClass}
             value={selectedProject}
             onChange={(e) => handleProjectChange(e.target.value)}
             disabled={loadingProjects}
@@ -267,7 +274,7 @@ export default function EpicPicker() {
               </option>
             ))}
           </select>
-          <ChevronDown />
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground h-3.5 w-3.5" />
         </div>
       </div>
 
@@ -276,7 +283,7 @@ export default function EpicPicker() {
         <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Epic</label>
         <div className="relative">
           <select
-            className="w-full appearance-none border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-40 disabled:bg-slate-50 disabled:cursor-not-allowed cursor-pointer transition pr-8 shadow-sm"
+            className={selectClass}
             value={selectedEpic}
             onChange={(e) => handleEpicChange(e.target.value)}
             disabled={!selectedProject || loadingEpics}
@@ -296,32 +303,27 @@ export default function EpicPicker() {
               </option>
             ))}
           </select>
-          <ChevronDown />
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground h-3.5 w-3.5" />
         </div>
       </div>
 
       {/* CTAs */}
       <div className="mt-1 flex flex-col gap-2">
-        <button
+        <Button
           onClick={handleViewGraph}
           disabled={!selectedEpic}
-          className="relative w-full py-2.5 px-4 rounded-xl text-sm font-semibold text-white transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none hover:enabled:scale-[1.02] hover:enabled:brightness-110 cursor-pointer"
-          style={{
-            background: selectedEpic
-              ? "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)"
-              : "#94a3b8",
-            boxShadow: selectedEpic ? "0 4px 14px rgba(99,102,241,0.4)" : "none",
-          }}
+          className="w-full"
         >
           View Task Graph →
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="outline"
           onClick={handleViewAllEpics}
           disabled={!selectedProject}
-          className="relative w-full py-2.5 px-4 rounded-xl text-sm font-semibold transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed hover:enabled:scale-[1.02] cursor-pointer border border-indigo-200 text-indigo-600 bg-indigo-50 hover:enabled:bg-indigo-100"
+          className="w-full border-indigo-200 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-400 dark:hover:bg-indigo-900"
         >
           View All Epics →
-        </button>
+        </Button>
       </div>
 
       {/* Connection status */}

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import BackgroundBlobs from "@/components/BackgroundBlobs";
 
 interface HomeShellProps {
@@ -74,11 +75,11 @@ export default function HomeShell({
         </div>
 
         {/* Card */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-xl shadow-slate-200/50 dark:shadow-black/30 overflow-hidden">
-          <div className="px-6 pt-6 pb-6">
+        <Card className="rounded-2xl border-slate-200 dark:border-slate-700/80 shadow-xl shadow-slate-200/50 dark:shadow-black/30">
+          <CardContent className="px-6 pt-6 pb-6">
             {picker}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Footer */}
         {footer && (
