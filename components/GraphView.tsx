@@ -323,7 +323,9 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
       const key =
         node.type === "epicGroupNode"
           ? node.data.epicKey
-          : node.id;
+          : node.type === "storyGroupNode"
+            ? node.data.storyKey
+            : node.id;
       if (key === selectedKey) {
         setSelectedKey(null);
         highlightConnected(null);
