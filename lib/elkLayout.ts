@@ -7,6 +7,10 @@ import {
   EPIC_PADDING_X,
   EPIC_PADDING_TOP,
   EPIC_PADDING_BOT,
+  STORY_PADDING_X,
+  STORY_PADDING_TOP,
+  STORY_PADDING_BOT,
+  STORY_NODE_GAP,
 } from "./graphConstants";
 
 /**
@@ -33,6 +37,16 @@ export const ELK_INNER_OPTIONS = {
   "elk.spacing.nodeNode": "60",
   "elk.edgeRouting": "POLYLINE",
   "elk.padding": `[top=${EPIC_PADDING_TOP}, left=${EPIC_PADDING_X}, bottom=${EPIC_PADDING_BOT}, right=${EPIC_PADDING_X}]`,
+};
+
+// Layout options for nodes inside a story group container.
+export const ELK_STORY_OPTIONS = {
+  "elk.algorithm": "layered",
+  "elk.direction": "DOWN",
+  "elk.layered.spacing.nodeNodeBetweenLayers": String(STORY_NODE_GAP * 4),
+  "elk.spacing.nodeNode": String(STORY_NODE_GAP * 3),
+  "elk.edgeRouting": "POLYLINE",
+  "elk.padding": `[top=${STORY_PADDING_TOP}, left=${STORY_PADDING_X}, bottom=${STORY_PADDING_BOT}, right=${STORY_PADDING_X}]`,
 };
 
 export const ELK_OPTIONS = {
@@ -65,9 +79,10 @@ export function resolveToTopLevel(
 // ── Epic-grouped layout ───────────────────────────────────────────────────────
 
 /**
- * Apply a two-level ELK layout:
- * 1. Layout child nodes within each epic group independently.
- * 2. Layout the resulting sized epic group nodes at the top level.
+ * Apply a three-level ELK layout:
+ * 1. Layout child nodes within each story group independently (sized).
+ * 2. Layout child nodes within each epic group (stories + standalone tasks) independently.
+ * 3. Layout the resulting sized epic group nodes at the top level.
  *
  * Mutates `nodes` and `edges` in place (positions and bend points).
  */
@@ -75,8 +90,89 @@ export async function applyEpicLayout(
   nodes: Node[],
   edges: Edge[],
   epicGroupIds: Map<string, string>,
+  storyGroupIds?: Map<string, string>,
 ): Promise<void> {
-  // Build a map from epicGroupId -> its direct children (taskGroupNode or standalone issueNode)
+  // ── Step 1: Layout children inside each story group ──────────────────────
+
+  const allStoryGroupIds = new Set(storyGroupIds?.values() ?? []);
+
+  if (allStoryGroupIds.size > 0) {
+    const storyGroupChildren = new Map<string, Node[]>();
+    for (const sgId of allStoryGroupIds) {
+      storyGroupChildren.set(sgId, []);
+    }
+
+    for (const node of nodes) {
+      if (node.type === "storyGroupNode") continue;
+      if (!node.parentId || !storyGroupChildren.has(node.parentId)) continue;
+      // Direct children of the story group: taskGroupNodes or standalone issueNodes
+      if (node.type === "taskGroupNode" || node.type === "issueNode") {
+        storyGroupChildren.get(node.parentId)!.push(node);
+      }
+    }
+
+    // Build intra-story edge lists
+    const storyGroupEdges = new Map<string, ElkExtendedEdge[]>();
+    for (const sgId of allStoryGroupIds) {
+      storyGroupEdges.set(sgId, []);
+    }
+
+    const storyChildIdSets = new Map<string, Set<string>>();
+    for (const [sgId, children] of storyGroupChildren.entries()) {
+      storyChildIdSets.set(sgId, new Set(children.map((n) => n.id)));
+    }
+
+    for (const edge of edges) {
+      for (const [sgId, childSet] of storyChildIdSets.entries()) {
+        if (childSet.has(edge.source) && childSet.has(edge.target)) {
+          storyGroupEdges.get(sgId)!.push({
+            id: `elk__story_inner__${edge.id}`,
+            sources: [edge.source],
+            targets: [edge.target],
+          });
+          break;
+        }
+      }
+    }
+
+    // Run ELK for each story group and apply positions + computed sizes
+    for (const [sgId, children] of storyGroupChildren.entries()) {
+      if (children.length === 0) continue;
+
+      const innerGraph: ElkNode = {
+        id: sgId,
+        layoutOptions: ELK_STORY_OPTIONS,
+        children: children.map((n) => ({
+          id: n.id,
+          width: n.type === "taskGroupNode" ? (n.width as number) : NODE_WIDTH,
+          height: n.type === "taskGroupNode" ? (n.height as number) : NODE_HEIGHT,
+        })),
+        edges: storyGroupEdges.get(sgId) ?? [],
+      };
+
+      const layouted = await elk.layout(innerGraph);
+
+      for (const elkChild of layouted.children ?? []) {
+        const node = nodes.find((n) => n.id === elkChild.id);
+        if (node) node.position = { x: elkChild.x ?? 0, y: elkChild.y ?? 0 };
+      }
+
+      // Update story group node size
+      const storyNode = nodes.find((n) => n.id === sgId);
+      if (storyNode) {
+        const w = layouted.width ?? (NODE_WIDTH + STORY_PADDING_X * 2);
+        const h = layouted.height ?? 120;
+        storyNode.width = w;
+        storyNode.height = h;
+        storyNode.style = { ...storyNode.style, width: w, height: h };
+      }
+    }
+  }
+
+  // ── Step 2: Layout children inside each epic group ────────────────────────
+
+  // Build a map from epicGroupId -> its direct children
+  // (taskGroupNode, storyGroupNode, or standalone issueNode)
   const epicGroupChildren = new Map<string, Node[]>();
   for (const [, epicGroupId] of epicGroupIds.entries()) {
     epicGroupChildren.set(epicGroupId, []);
@@ -87,8 +183,9 @@ export async function applyEpicLayout(
     if (!node.parentId || !epicGroupChildren.has(node.parentId)) continue;
     // Only direct children of the epic group:
     //   - taskGroupNode containers
+    //   - storyGroupNode containers
     //   - standalone issueNodes whose parentId is the epicGroupId directly
-    if (node.type === "taskGroupNode" || node.type === "issueNode") {
+    if (node.type === "taskGroupNode" || node.type === "storyGroupNode" || node.type === "issueNode") {
       epicGroupChildren.get(node.parentId)!.push(node);
     }
   }
@@ -135,8 +232,12 @@ export async function applyEpicLayout(
       layoutOptions: ELK_INNER_OPTIONS,
       children: children.map((n) => ({
         id: n.id,
-        width: n.type === "taskGroupNode" ? (n.width as number) : NODE_WIDTH,
-        height: n.type === "taskGroupNode" ? (n.height as number) : NODE_HEIGHT,
+        width: (n.type === "taskGroupNode" || n.type === "storyGroupNode")
+          ? (n.width as number)
+          : NODE_WIDTH,
+        height: (n.type === "taskGroupNode" || n.type === "storyGroupNode")
+          ? (n.height as number)
+          : NODE_HEIGHT,
       })),
       edges: epicGroupEdges.get(epicGroupId) ?? [],
     };
@@ -174,6 +275,8 @@ export async function applyEpicLayout(
       node.style = { ...node.style, width: size.width, height: size.height };
     }
   }
+
+  // ── Step 3: Top-level layout of epic group containers ────────────────────
 
   // Top-level layout: just the epic group nodes (and any standalone nodes)
   const topLevelNodes = nodes.filter((n) => !n.parentId);

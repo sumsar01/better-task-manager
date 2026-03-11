@@ -17,21 +17,23 @@ import "@xyflow/react/dist/style.css";
 import IssueNode from "./IssueNode";
 import TaskGroupNode from "./TaskGroupNode";
 import EpicGroupNode from "./EpicGroupNode";
+import StoryGroupNode from "./StoryGroupNode";
 import ElkEdge from "./ElkEdge";
 import Legend from "./Legend";
 import { buildGraph, buildEdgesOnly, STATUS_COLORS, STATUS_TEXT_COLORS } from "@/lib/buildGraph";
 import { diffIssues } from "@/lib/diffGraph";
 import { computeCriticalPath } from "@/lib/criticalPath";
 import type { JiraIssue } from "@/lib/jira";
-import type { IssueNodeData, TaskGroupNodeData, EpicGroupNodeData } from "@/lib/buildGraph";
+import type { IssueNodeData, TaskGroupNodeData, EpicGroupNodeData, StoryGroupNodeData } from "@/lib/buildGraph";
 
 /** Discriminated union of all node types used in the graph. */
 type AnyNode =
   | Node<IssueNodeData, "issueNode">
   | Node<TaskGroupNodeData, "taskGroupNode">
-  | Node<EpicGroupNodeData, "epicGroupNode">;
+  | Node<EpicGroupNodeData, "epicGroupNode">
+  | Node<StoryGroupNodeData, "storyGroupNode">;
 
-const nodeTypes = { issueNode: IssueNode, taskGroupNode: TaskGroupNode, epicGroupNode: EpicGroupNode };
+const nodeTypes = { issueNode: IssueNode, taskGroupNode: TaskGroupNode, epicGroupNode: EpicGroupNode, storyGroupNode: StoryGroupNode };
 const edgeTypes = { elkEdge: ElkEdge };
 const FIT_VIEW_OPTIONS = { padding: 0.2 } as const;
 const PRO_OPTIONS = { hideAttribution: true } as const;

@@ -20,6 +20,12 @@ export const EPIC_PADDING_TOP = 52; // extra room for the header bar
 export const EPIC_PADDING_BOT = 32;
 export const EPIC_NODE_GAP = 24;    // gap between child nodes inside an epic group
 
+// Story group container layout constants
+export const STORY_PADDING_X = 20;
+export const STORY_PADDING_TOP = 36; // room for the story label header
+export const STORY_PADDING_BOT = 20;
+export const STORY_NODE_GAP = 16;    // gap between child nodes inside a story group
+
 // Synthetic key for tasks with no epic parent
 export const UNASSIGNED_EPIC_KEY = "__unassigned__";
 
@@ -147,6 +153,14 @@ export interface EpicGroupNodeData {
   epicSummary: string;
   /** Accent color bundle for this epic */
   color: { tint: string; header: string; text: string; border: string };
+  [key: string]: unknown;
+}
+
+export interface StoryGroupNodeData {
+  /** Key of the story issue */
+  storyKey: string;
+  /** Display name / summary of the story */
+  storySummary: string;
   [key: string]: unknown;
 }
 
