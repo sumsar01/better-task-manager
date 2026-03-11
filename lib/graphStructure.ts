@@ -455,7 +455,10 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
           assignee: childIssue.fields.assignee?.displayName ?? null,
           issueType: childIssue.fields.issuetype.name,
           isSubtask: childIssue.fields.issuetype.subtask,
-          insideGroup: true,
+          // Story-group members are NOT inside a taskGroupNode, so they need
+          // their own handles for dependency edges. insideGroup: false ensures
+          // handles are rendered on the card.
+          insideGroup: false,
           isEpicStandalone: false,
           isExternal: (childIssue.fields.labels as string[] | undefined)?.includes(EXTERNAL_LABEL) ?? false,
           bgColor: statusBgColor(cat),

@@ -5,7 +5,7 @@ import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import type { IssueNodeData } from "@/lib/buildGraph";
 
 const ISSUE_TYPE_LABEL: Record<string, { short: string; color: string; bg: string }> = {
-  Story:   { short: "Story",   color: "#7c3aed", bg: "#ede9fe" },
+  Story:   { short: "Story",   color: "#0891b2", bg: "#e0f9ff" },
   Bug:     { short: "Bug",     color: "#dc2626", bg: "#fee2e2" },
   Task:    { short: "Task",    color: "#0369a1", bg: "#e0f2fe" },
   Subtask: { short: "Sub",     color: "#0369a1", bg: "#e0f2fe" },
