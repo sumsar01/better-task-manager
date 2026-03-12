@@ -835,7 +835,7 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
       individualEdges: bundle.links,
       bendPoints: [],
       color: dominantColor,
-      label,
+      label: allResolved ? "" : label,
     };
     edges.push({
       id: bundleEdgeId,
@@ -883,7 +883,7 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
       individualEdges: bundle.links,
       bendPoints: [],
       color: dominantColor,
-      label,
+      label: allResolved ? "" : label,
     };
     edges.push({
       id: bundleEdgeId,
