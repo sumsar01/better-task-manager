@@ -5,7 +5,7 @@ import { applyEpicLayout, applyFlatLayout } from "./elkLayout";
 
 // ── Re-exports (preserve existing public API) ─────────────────────────────────
 
-export type { EdgeType, IssueNodeData, TaskGroupNodeData, EpicGroupNodeData, GraphData } from "./graphConstants";
+export type { EdgeType, IssueNodeData, TaskGroupNodeData, EpicGroupNodeData, StoryGroupNodeData, GraphData } from "./graphConstants";
 export {
   NODE_WIDTH,
   NODE_HEIGHT,
@@ -54,13 +54,13 @@ export function buildEdgesOnly(issues: JiraIssue[]): { edges: Edge[] } {
  * ELK bend points are stored on edge.data.bendPoints for the ElkEdge renderer.
  */
 export async function buildGraph(issues: JiraIssue[]) {
-  const { nodes, edges, groupIds, issueGroupId, childKeys, epicGroupIds } =
+  const { nodes, edges, groupIds, issueGroupId, childKeys, epicGroupIds, storyGroupIds } =
     buildGraphStructure(issues);
 
   const epicGroupingEnabled = epicGroupIds.size > 0;
 
   if (epicGroupingEnabled) {
-    await applyEpicLayout(nodes, edges, epicGroupIds);
+    await applyEpicLayout(nodes, edges, epicGroupIds, storyGroupIds);
   } else {
     await applyFlatLayout(nodes, edges, groupIds, issueGroupId, childKeys);
   }

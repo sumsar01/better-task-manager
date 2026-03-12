@@ -17,21 +17,23 @@ import "@xyflow/react/dist/style.css";
 import IssueNode from "./IssueNode";
 import TaskGroupNode from "./TaskGroupNode";
 import EpicGroupNode from "./EpicGroupNode";
+import StoryGroupNode from "./StoryGroupNode";
 import ElkEdge from "./ElkEdge";
 import Legend from "./Legend";
 import { buildGraph, buildEdgesOnly, STATUS_COLORS, STATUS_TEXT_COLORS } from "@/lib/buildGraph";
 import { diffIssues } from "@/lib/diffGraph";
 import { computeCriticalPath } from "@/lib/criticalPath";
 import type { JiraIssue } from "@/lib/jira";
-import type { IssueNodeData, TaskGroupNodeData, EpicGroupNodeData } from "@/lib/buildGraph";
+import type { IssueNodeData, TaskGroupNodeData, EpicGroupNodeData, StoryGroupNodeData } from "@/lib/buildGraph";
 
 /** Discriminated union of all node types used in the graph. */
 type AnyNode =
   | Node<IssueNodeData, "issueNode">
   | Node<TaskGroupNodeData, "taskGroupNode">
-  | Node<EpicGroupNodeData, "epicGroupNode">;
+  | Node<EpicGroupNodeData, "epicGroupNode">
+  | Node<StoryGroupNodeData, "storyGroupNode">;
 
-const nodeTypes = { issueNode: IssueNode, taskGroupNode: TaskGroupNode, epicGroupNode: EpicGroupNode };
+const nodeTypes = { issueNode: IssueNode, taskGroupNode: TaskGroupNode, epicGroupNode: EpicGroupNode, storyGroupNode: StoryGroupNode };
 const edgeTypes = { elkEdge: ElkEdge };
 const FIT_VIEW_OPTIONS = { padding: 0.2 } as const;
 const PRO_OPTIONS = { hideAttribution: true } as const;
@@ -52,9 +54,14 @@ interface GraphViewProps {
   latestIssues?: JiraIssue[];
   /** Called when a node is selected (key) or deselected (null). */
   onNodeSelect?: (key: string | null) => void;
+  /**
+   * Controlled selected key — when the parent clears this (e.g. sidebar X
+   * button), GraphView clears its highlight state to match.
+   */
+  selectedKey?: string | null;
 }
 
-export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphViewProps) {
+export default function GraphView({ issues, latestIssues, onNodeSelect, selectedKey: selectedKeyProp }: GraphViewProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<AnyNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const layoutDoneRef = useRef(false);
@@ -64,6 +71,22 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
   useEffect(() => { edgesRef.current = edges; }, [edges]);
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+
+  // Keep a stable ref to the current highlight function so the deselect effect
+  // below can call it without it becoming a dependency (it's defined later).
+  const highlightConnectedRef = useRef<((key: string | null) => void) | null>(null);
+
+  // Sync internal highlight when parent clears the selection (e.g. sidebar X button).
+  // When selectedKeyProp transitions to null/undefined, clear the highlight.
+  useEffect(() => {
+    if (selectedKeyProp == null && selectedKey !== null) {
+      setSelectedKey(null);
+      highlightConnectedRef.current?.(null);
+    }
+  // selectedKey intentionally omitted — we only care about the prop changing to null.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKeyProp]);
+
   const [criticalPathOn, setCriticalPathOn] = useState(false);
   // Tracks whether critical path styles are currently applied to nodes/edges.
   // Used to avoid redundant setNodes/setEdges calls in the clear branch.
@@ -257,6 +280,9 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
     },
     [setNodes, setEdges]
   );
+  // Keep the ref in sync so the deselect effect (defined above highlightConnected)
+  // can call the latest version without it being a dependency.
+  highlightConnectedRef.current = highlightConnected;
 
   // ── Critical path visual overrides ─────────────────────────────────────
   // Depends only on criticalPathOn — reads the current path from a ref to avoid
@@ -321,7 +347,9 @@ export default function GraphView({ issues, latestIssues, onNodeSelect }: GraphV
       const key =
         node.type === "epicGroupNode"
           ? node.data.epicKey
-          : node.id;
+          : node.type === "storyGroupNode"
+            ? node.data.storyKey
+            : node.id;
       if (key === selectedKey) {
         setSelectedKey(null);
         highlightConnected(null);

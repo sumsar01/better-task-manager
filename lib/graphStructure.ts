@@ -9,6 +9,8 @@ import {
   GROUP_LEFT_INDENT,
   SUBTASK_NODE_HEIGHT,
   EPIC_PADDING_X,
+  STORY_PADDING_X,
+  STORY_PADDING_TOP,
   UNASSIGNED_EPIC_KEY,
   EXTERNAL_LABEL,
   EPIC_COLORS,
@@ -23,6 +25,7 @@ import type {
   IssueNodeData,
   TaskGroupNodeData,
   EpicGroupNodeData,
+  StoryGroupNodeData,
 } from "./graphConstants";
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -105,6 +108,10 @@ export interface GraphStructure {
   issueEpicGroupId: Map<string, string>;
   /** epicKey -> epicGroupNodeId */
   epicGroupIds: Map<string, string>;
+  /** storyKey -> storyGroupNodeId */
+  storyGroupIds: Map<string, string>;
+  /** issueKey -> storyGroupNodeId (for issues inside a story group) */
+  issueStoryGroupId: Map<string, string>;
 }
 
 // ── Structure builder (phases 0-4, no layout) ─────────────────────────────────
@@ -208,6 +215,64 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     }
   }
 
+  // ── 0.7 Build story -> child issues map, create storyGroupNode containers ─
+  // Stories that have direct children in the dataset become group containers,
+  // similar to how epics work. Stories without children remain standalone cards.
+
+  // First, identify which stories have children (by scanning parent relationships).
+  const storyToChildren = new Map<string, string[]>();
+  for (const issue of issues) {
+    if (!issue.fields.parent) continue;
+    const pk = issue.fields.parent.key;
+    const parentIssue = issueMap.get(pk);
+    if (!parentIssue) continue;
+    // Only group children under Stories (not under Epics or Jira-subtask-type issues)
+    if (parentIssue.fields.issuetype.name !== "Story") continue;
+    if (!storyToChildren.has(pk)) storyToChildren.set(pk, []);
+    storyToChildren.get(pk)!.push(issue.key);
+  }
+
+  const storyGroupIds = new Map<string, string>();
+  const issueStoryGroupId = new Map<string, string>();
+
+  for (const [storyKey, childIssueKeys] of storyToChildren.entries()) {
+    if (childIssueKeys.length === 0) continue;
+    const storyIssue = issueMap.get(storyKey);
+    if (!storyIssue) continue;
+
+    const storyGroupId = `story_group__${storyKey}`;
+    storyGroupIds.set(storyKey, storyGroupId);
+
+    const storySummary = storyIssue.fields.summary;
+
+    // The storyGroupNode lives inside an epicGroupNode if epic grouping is on
+    const storyEpicKey = issueToEpic.get(storyKey);
+    const storyEpicGroupId =
+      epicGroupingEnabled && storyEpicKey
+        ? epicGroupIds.get(storyEpicKey)
+        : undefined;
+
+    // Width/height are placeholders - updated after ELK inner layout
+    nodes.push({
+      id: storyGroupId,
+      type: "storyGroupNode",
+      position: { x: 0, y: 0 },
+      width: NODE_WIDTH + STORY_PADDING_X * 2,
+      height: 120,
+      style: { width: NODE_WIDTH + STORY_PADDING_X * 2, height: 120 },
+      selectable: false,
+      ...(storyEpicGroupId ? { parentId: storyEpicGroupId } : {}),
+      data: {
+        storyKey,
+        storySummary,
+      } satisfies StoryGroupNodeData,
+    });
+
+    if (storyEpicGroupId) {
+      issueEpicGroupId.set(storyKey, storyEpicGroupId);
+    }
+  }
+
   // ── 1. Build parent->children map ────────────────────────────────────────
   const parentToSubtasks = new Map<string, string[]>();
 
@@ -218,6 +283,7 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     const parentIssue = issueMap.get(pk)!;
     if (parentIssue.fields.issuetype.subtask) continue;
     if (parentIssue.fields.issuetype.name === "Epic") continue; // tasks are not sub-tasks of epics
+    if (parentIssue.fields.issuetype.name === "Story") continue; // story children handled as storyGroup members
     if (!parentToSubtasks.has(pk)) parentToSubtasks.set(pk, []);
     parentToSubtasks.get(pk)!.push(issue.key);
   }
@@ -243,12 +309,23 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
       currentY += SUBTASK_NODE_HEIGHT + GROUP_INNER_GAP;
     }
 
-    // If epic grouping is on, this taskGroupNode is a child of an epicGroupNode.
-    // Do NOT set extent:"parent" on it - React Flow doesn't support extent:"parent"
-    // on nodes whose own parent is also a child (3-level extent nesting is unsupported).
+    // Determine the parent container for this taskGroupNode.
+    // Priority: storyGroupNode > epicGroupNode > none
+    const parentIssueEpicKey = issueToEpic.get(parentKey);
     const taskGroupEpicId = epicGroupingEnabled
-      ? epicGroupIds.get(issueToEpic.get(parentKey) ?? "")
+      ? epicGroupIds.get(parentIssueEpicKey ?? "")
       : undefined;
+
+    // Check if the parent task lives inside a storyGroupNode
+    const parentStoryGroupId = storyGroupIds.get(
+      issueMap.get(parentKey)?.fields.parent?.key ?? ""
+    );
+    const taskGroupParentId = parentStoryGroupId ?? taskGroupEpicId;
+
+    // If epic grouping is on, this taskGroupNode is a child of an epicGroupNode
+    // (possibly via a storyGroupNode). Do NOT set extent:"parent" on it -
+    // React Flow doesn't support extent:"parent" on nodes whose own parent is
+    // also a child (3-level extent nesting is unsupported).
 
     nodes.push({
       id: groupId,
@@ -258,8 +335,8 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
       height: gHeight,
       style: { width: gWidth, height: gHeight },
       selectable: false,
-      ...(taskGroupEpicId ? { parentId: taskGroupEpicId } : {}),
-      // extent:"parent" intentionally omitted when inside an epicGroupNode
+      ...(taskGroupParentId ? { parentId: taskGroupParentId } : {}),
+      // extent:"parent" intentionally omitted when inside an epicGroupNode or storyGroupNode
       data: {
         parentKey,
         subtaskCount: subtaskKeys.length,
@@ -270,11 +347,14 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     if (taskGroupEpicId) {
       issueEpicGroupId.set(parentKey, taskGroupEpicId);
     }
+    if (parentStoryGroupId) {
+      issueStoryGroupId.set(parentKey, parentStoryGroupId);
+    }
 
-    // When this taskGroupNode lives inside an epicGroupNode (3-level hierarchy),
-    // issueNodes inside it must NOT have extent:"parent" - React Flow does not
-    // support extent:"parent" at depth 3 (grandchild of a parent node).
-    const issueExtent = taskGroupEpicId ? undefined : ("parent" as const);
+    // When this taskGroupNode lives inside an epicGroupNode or storyGroupNode
+    // (3-level hierarchy), issueNodes inside it must NOT have extent:"parent" -
+    // React Flow does not support extent:"parent" at depth 3.
+    const issueExtent = taskGroupParentId ? undefined : ("parent" as const);
 
     const parentIssue = issueMap.get(parentKey)!;
     const parentCat = parentIssue.fields.status.statusCategory.key;
@@ -335,12 +415,71 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     }
   }
 
+  // ── 2.5 Build standalone issueNodes for story-group members that are NOT
+  //        themselves parents of subtasks (i.e. tasks inside a story with no
+  //        sub-tasks of their own become plain issueNode cards inside the story
+  //        group container).
+  for (const [storyKey, childIssueKeys] of storyToChildren.entries()) {
+    const storyGroupId = storyGroupIds.get(storyKey);
+    if (!storyGroupId) continue;
+
+    for (const ck of childIssueKeys) {
+      // Skip if already handled as a taskGroupNode parent (Phase 2 above)
+      if (issueGroupId.has(ck)) continue;
+      // Skip if it is a subtask-type chip (childKeys)
+      if (childKeys.has(ck)) continue;
+
+      const childIssue = issueMap.get(ck);
+      if (!childIssue) continue;
+
+      const cat = childIssue.fields.status.statusCategory.key;
+
+      // The storyGroupNode itself lives inside an epicGroupNode (depth 2),
+      // so its children are at depth 3. Omit extent:"parent" at depth >= 3.
+      const storyEpicGroupId = epicGroupingEnabled
+        ? issueEpicGroupId.get(storyKey)
+        : undefined;
+      const issueExtent = storyEpicGroupId ? undefined : ("parent" as const);
+
+      nodes.push({
+        id: ck,
+        type: "issueNode",
+        parentId: storyGroupId,
+        ...(issueExtent ? { extent: issueExtent } : {}),
+        position: { x: STORY_PADDING_X, y: STORY_PADDING_TOP },
+        data: {
+          key: ck,
+          summary: childIssue.fields.summary,
+          statusName: childIssue.fields.status.name,
+          statusCategory: cat,
+          assignee: childIssue.fields.assignee?.displayName ?? null,
+          issueType: childIssue.fields.issuetype.name,
+          isSubtask: childIssue.fields.issuetype.subtask,
+          // Story-group members are NOT inside a taskGroupNode, so they need
+          // their own handles for dependency edges. insideGroup: false ensures
+          // handles are rendered on the card.
+          insideGroup: false,
+          isEpicStandalone: false,
+          isExternal: (childIssue.fields.labels as string[] | undefined)?.includes(EXTERNAL_LABEL) ?? false,
+          bgColor: statusBgColor(cat),
+          textColor: statusTextColor(cat),
+        } satisfies IssueNodeData,
+      });
+
+      issueStoryGroupId.set(ck, storyGroupId);
+    }
+  }
+
   // ── 3. Build standalone nodes ────────────────────────────────────────────
   for (const issue of issues) {
     if (issueGroupId.has(issue.key)) continue;
+    if (issueStoryGroupId.has(issue.key)) continue;
     // Epics that already have an epicGroupNode container should not also get
     // a standalone issueNode - that would render them twice (container + card).
     if (epicGroupIds.has(issue.key)) continue;
+    // Stories that already have a storyGroupNode container should not also get
+    // a standalone issueNode.
+    if (storyGroupIds.has(issue.key)) continue;
 
     const cat = issue.fields.status.statusCategory.key;
     const isEpicStandalone =
@@ -408,6 +547,7 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
   // ── 4b. Helper: resolve node ID for edge endpoints ──────────────────────
   // When epic grouping is on, cross-epic edges must connect at the epic group level
   // (or at the task group level if within the same epic group).
+  // Story groups act as an additional level of resolution within an epic.
   function resolveEdgeEndpoint(key: string): string {
     // If this key is an epic that has a group container node, map it to that
     // container's id (e.g. "EPIC-A" -> "epic_group__EPIC-A").  Without this,
@@ -418,6 +558,11 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
       const epicGroupId = epicGroupIds.get(key);
       if (epicGroupId) return epicGroupId;
     }
+
+    // If this key is a story that has a group container node, map it to that
+    // container's id (e.g. "STORY-A" -> "story_group__STORY-A").
+    const storyGroupId = storyGroupIds.get(key);
+    if (storyGroupId) return storyGroupId;
 
     // Resolve to task-group level for tasks that have subtasks
     const taskGroupId = groupIds.get(key) ?? (issueGroupId.get(key) && childKeys.has(key) ? issueGroupId.get(key) : null);
@@ -514,5 +659,5 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     }
   }
 
-  return { nodes, edges, groupIds, issueGroupId, childKeys, issueEpicGroupId, epicGroupIds };
+  return { nodes, edges, groupIds, issueGroupId, childKeys, issueEpicGroupId, epicGroupIds, storyGroupIds, issueStoryGroupId };
 }
