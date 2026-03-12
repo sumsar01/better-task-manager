@@ -1,5 +1,6 @@
 const LEGEND_ITEMS = [
   { color: "#ef4444", label: "Blocks", dash: false, bold: false },
+  { color: "#94a3b8", label: "Blocks (resolved)", dash: false, bold: false },
   { color: "#94a3b8", label: "Relates to", dash: false, bold: false },
   { color: "#a855f7", label: "Clones", dash: false, bold: false },
   { color: "#ef4444", label: "Cross-epic bundle", dash: false, bold: true },
