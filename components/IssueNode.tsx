@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
-import type { IssueNodeData } from "@/lib/buildGraph";
+import type { IssueNodeData } from "@/lib/graphConstants";
 
 const ISSUE_TYPE_LABEL: Record<string, { short: string; color: string; bg: string }> = {
   Story:   { short: "Story",   color: "#0891b2", bg: "#e0f9ff" },
@@ -152,6 +152,28 @@ function IssueNode({ data, selected }: NodeProps<IssueNodeType>) {
                 title={`${data.subtaskCount} subtask${data.subtaskCount === 1 ? "" : "s"}`}
               >
                 ↳ {data.subtaskCount}
+              </span>
+            )}
+
+            {/* Cross-epic outgoing badge — this node blocks tasks in another epic */}
+            {data.crossEpicOut != null && data.crossEpicOut > 0 && (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md tracking-wide flex items-center gap-0.5"
+                style={{ color: "#9a3412", background: "#ffedd5" }}
+                title={`Blocks ${data.crossEpicOut} task${data.crossEpicOut === 1 ? "" : "s"} in another epic`}
+              >
+                ↗ {data.crossEpicOut}
+              </span>
+            )}
+
+            {/* Cross-epic incoming badge — this node is blocked by tasks in another epic */}
+            {data.crossEpicIn != null && data.crossEpicIn > 0 && (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md tracking-wide flex items-center gap-0.5"
+                style={{ color: "#991b1b", background: "#fee2e2" }}
+                title={`Blocked by ${data.crossEpicIn} task${data.crossEpicIn === 1 ? "" : "s"} in another epic`}
+              >
+                ↙ {data.crossEpicIn}
               </span>
             )}
 

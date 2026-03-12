@@ -19,12 +19,14 @@ import TaskGroupNode from "./TaskGroupNode";
 import EpicGroupNode from "./EpicGroupNode";
 import StoryGroupNode from "./StoryGroupNode";
 import ElkEdge from "./ElkEdge";
+import CrossEpicBundleEdge from "./CrossEpicBundleEdge";
 import Legend from "./Legend";
 import { buildGraph, buildEdgesOnly, STATUS_COLORS, STATUS_TEXT_COLORS } from "@/lib/buildGraph";
 import { diffIssues } from "@/lib/diffGraph";
 import { computeCriticalPath } from "@/lib/criticalPath";
 import type { JiraIssue } from "@/lib/jira";
 import type { IssueNodeData, TaskGroupNodeData, EpicGroupNodeData, StoryGroupNodeData } from "@/lib/buildGraph";
+import type { CrossEpicBundleEdgeData } from "@/lib/graphConstants";
 
 /** Discriminated union of all node types used in the graph. */
 type AnyNode =
@@ -34,7 +36,7 @@ type AnyNode =
   | Node<StoryGroupNodeData, "storyGroupNode">;
 
 const nodeTypes = { issueNode: IssueNode, taskGroupNode: TaskGroupNode, epicGroupNode: EpicGroupNode, storyGroupNode: StoryGroupNode };
-const edgeTypes = { elkEdge: ElkEdge };
+const edgeTypes = { elkEdge: ElkEdge, crossEpicBundle: CrossEpicBundleEdge };
 const FIT_VIEW_OPTIONS = { padding: 0.2 } as const;
 const PRO_OPTIONS = { hideAttribution: true } as const;
 
@@ -247,11 +249,25 @@ export default function GraphView({ issues, latestIssues, onNodeSelect, selected
         return;
       }
 
-      // Compute connected sets from the stable ref — no side-effects in updaters
+      // Compute connected sets from the stable ref — no side-effects in updaters.
+      // For regular edges: match on source/target (resolved node IDs).
+      // For bundle edges: match on individualEdges[].sourceKey / targetKey
+      // (raw issue keys, since bundle source/target are epic group container IDs).
       const connectedNodes = new Set<string>([clickedKey]);
       const connectedEdges = new Set<string>();
+
       for (const edge of edgesRef.current) {
-        if (edge.source === clickedKey || edge.target === clickedKey) {
+        if (edge.type === "crossEpicBundle") {
+          const bundleData = edge.data as CrossEpicBundleEdgeData | undefined;
+          const involved = bundleData?.individualEdges?.some(
+            (link) => link.sourceKey === clickedKey || link.targetKey === clickedKey,
+          ) ?? false;
+          if (involved) {
+            connectedEdges.add(edge.id);
+            connectedNodes.add(edge.source);
+            connectedNodes.add(edge.target);
+          }
+        } else if (edge.source === clickedKey || edge.target === clickedKey) {
           connectedEdges.add(edge.id);
           connectedNodes.add(edge.source);
           connectedNodes.add(edge.target);

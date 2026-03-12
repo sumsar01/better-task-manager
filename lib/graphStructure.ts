@@ -26,6 +26,8 @@ import type {
   TaskGroupNodeData,
   EpicGroupNodeData,
   StoryGroupNodeData,
+  CrossEpicBundleEdgeData,
+  CrossEpicLink,
 } from "./graphConstants";
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -577,6 +579,49 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
   }
 
   // ── 4c. Build edges ──────────────────────────────────────────────────────
+  // Cross-epic links are aggregated into bundle edges (one per directed epic
+  // pair) rather than drawn as individual dashed lines.  Within-epic edges are
+  // drawn normally.
+  //
+  // We also track per-raw-issue-key cross-epic out/in counts so we can show
+  // ↗/↙ badges on node cards.
+
+  // Map: `${srcEpicGroupId}--${tgtEpicGroupId}` → accumulated bundle data
+  interface BundleAccum {
+    srcEpicId: string;
+    tgtEpicId: string;
+    links: CrossEpicLink[];
+    typeCounts: Map<string, number>; // typeName → count, for label generation
+  }
+  const bundleMap = new Map<string, BundleAccum>();
+
+  // Per raw issue key: how many cross-epic outgoing / incoming edges
+  const crossEpicOutCount = new Map<string, number>();
+  const crossEpicInCount  = new Map<string, number>();
+
+  function addCrossEpicLink(
+    srcRaw: string, tgtRaw: string,
+    srcEpicId: string, tgtEpicId: string,
+    typeName: string, color: string,
+  ) {
+    const bundleKey = `${srcEpicId}--${tgtEpicId}`;
+    if (!bundleMap.has(bundleKey)) {
+      bundleMap.set(bundleKey, { srcEpicId, tgtEpicId, links: [], typeCounts: new Map() });
+    }
+    const bundle = bundleMap.get(bundleKey)!;
+    // Deduplicate individual links — use canonical normalised type name so that
+    // "blocks" (outward) and "is blocked by" (inward) for the same pair don't
+    // produce two entries. We normalise to the outward/canonical form here.
+    const linkKey = `${srcRaw}--${tgtRaw}`;
+    if (!bundle.links.find(l => `${l.sourceKey}--${l.targetKey}` === linkKey)) {
+      bundle.links.push({ sourceKey: srcRaw, targetKey: tgtRaw, typeName, color });
+      bundle.typeCounts.set(typeName, (bundle.typeCounts.get(typeName) ?? 0) + 1);
+      // Only count after confirmed add — prevents double-counting from outward+inward iterations
+      crossEpicOutCount.set(srcRaw, (crossEpicOutCount.get(srcRaw) ?? 0) + 1);
+      crossEpicInCount.set(tgtRaw,  (crossEpicInCount.get(tgtRaw)  ?? 0) + 1);
+    }
+  }
+
   for (const issue of issues) {
     for (const link of issue.fields.issuelinks ?? []) {
       if (link.outwardIssue && issueMap.has(link.outwardIssue.key)) {
@@ -590,28 +635,31 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
         const src = resolveEdgeEndpoint(issue.key);
         const tgt = resolveEdgeEndpoint(link.outwardIssue.key);
         if (src === tgt) continue;
-        const edgeId = `${src}-${tgt}-${getEdgeLabel(typeName)}`;
-        if (!edgeSet.has(edgeId)) {
-          edgeSet.add(edgeId);
-          const color = getEdgeColor(typeName);
-          const isCrossEpic = epicGroupingEnabled &&
-            getEpicGroupForKey(issue.key) !== getEpicGroupForKey(link.outwardIssue.key);
-          edges.push({
-            id: edgeId,
-            source: src,
-            target: tgt,
-            label: getEdgeLabel(typeName),
-            type: "elkEdge",
-            animated: typeName.toLowerCase() === "blocks",
-            style: {
-              stroke: color,
-              strokeWidth: isCrossEpic ? 2.5 : 2,
-              strokeDasharray: isCrossEpic ? "6 3" : undefined,
-            },
-            labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
-            labelBgStyle: { fill: "white", fillOpacity: 0.85 },
-            data: { color, bendPoints: [], isCrossEpic },
-          });
+        const isCrossEpic = epicGroupingEnabled &&
+          getEpicGroupForKey(issue.key) !== getEpicGroupForKey(link.outwardIssue.key);
+
+        if (isCrossEpic) {
+          const srcEpicId = getEpicGroupForKey(issue.key) ?? src;
+          const tgtEpicId = getEpicGroupForKey(link.outwardIssue.key) ?? tgt;
+          addCrossEpicLink(issue.key, link.outwardIssue.key, srcEpicId, tgtEpicId, typeName, getEdgeColor(typeName));
+        } else {
+          const edgeId = `${src}-${tgt}-${getEdgeLabel(typeName)}`;
+          if (!edgeSet.has(edgeId)) {
+            edgeSet.add(edgeId);
+            const color = getEdgeColor(typeName);
+            edges.push({
+              id: edgeId,
+              source: src,
+              target: tgt,
+              label: getEdgeLabel(typeName),
+              type: "elkEdge",
+              animated: typeName.toLowerCase() === "blocks",
+              style: { stroke: color, strokeWidth: 2 },
+              labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
+              labelBgStyle: { fill: "white", fillOpacity: 0.85 },
+              data: { color, bendPoints: [] },
+            });
+          }
         }
       }
 
@@ -629,33 +677,83 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
         const source = resolveEdgeEndpoint(rawBlocker);
         const target = resolveEdgeEndpoint(rawBlocked);
         if (source === target) continue;
-        const edgeId = `${source}-${target}-${getEdgeLabel(typeName)}`;
-        if (!edgeSet.has(edgeId)) {
-          edgeSet.add(edgeId);
-          const color = getEdgeColor(normalised);
-          const isCrossEpic = epicGroupingEnabled &&
-            getEpicGroupForKey(rawBlocker) !== getEpicGroupForKey(rawBlocked);
-          edges.push({
-            id: edgeId,
-            source,
-            target,
-            label: getEdgeLabel(typeName),
-            type: "elkEdge",
-            animated: normalised.includes("block"),
-            style: {
-              stroke: color,
-              strokeWidth: isCrossEpic ? 2.5 : 2,
-              strokeDasharray: isCrossEpic ? "6 3" : undefined,
-            },
-            labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
-            labelBgStyle: { fill: "white", fillOpacity: 0.85 },
-            data: { color, bendPoints: [], isCrossEpic },
-          });
+        const isCrossEpic = epicGroupingEnabled &&
+          getEpicGroupForKey(rawBlocker) !== getEpicGroupForKey(rawBlocked);
+
+        if (isCrossEpic) {
+          const srcEpicId = getEpicGroupForKey(rawBlocker) ?? source;
+          const tgtEpicId = getEpicGroupForKey(rawBlocked) ?? target;
+          // Use the outward type name so the stored label is canonical (e.g. "blocks")
+          addCrossEpicLink(rawBlocker, rawBlocked, srcEpicId, tgtEpicId, link.type.outward, getEdgeColor(link.type.outward.toLowerCase()));
+        } else {
+          const edgeId = `${source}-${target}-${getEdgeLabel(typeName)}`;
+          if (!edgeSet.has(edgeId)) {
+            edgeSet.add(edgeId);
+            const color = getEdgeColor(normalised);
+            edges.push({
+              id: edgeId,
+              source,
+              target,
+              label: getEdgeLabel(typeName),
+              type: "elkEdge",
+              animated: normalised.includes("block"),
+              style: { stroke: color, strokeWidth: 2 },
+              labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
+              labelBgStyle: { fill: "white", fillOpacity: 0.85 },
+              data: { color, bendPoints: [] },
+            });
+          }
         }
       }
 
       // Subtask -> parent relationship is shown visually via the TaskGroupNode
       // container (indented chips). No explicit edge is drawn in either case.
+    }
+  }
+
+  // ── 4d. Emit bundle edges for cross-epic links ────────────────────────────
+  for (const bundle of bundleMap.values()) {
+    // Build a human-readable label: dominant type name + total count.
+    // e.g. "3 blocks" or "2 blocks, 1 relates to"
+    let label = "";
+    const sorted = [...bundle.typeCounts.entries()].sort((a, b) => b[1] - a[1]);
+    if (sorted.length === 1) {
+      label = `${sorted[0][1]} ${getEdgeLabel(sorted[0][0])}`;
+    } else {
+      label = sorted.map(([t, n]) => `${n} ${getEdgeLabel(t)}`).join(", ");
+    }
+    // Dominant color = color of most common type
+    const dominantColor = getEdgeColor(sorted[0][0]);
+    const bundleEdgeId = `bundle__${bundle.srcEpicId}--${bundle.tgtEpicId}`;
+    const bundleData: CrossEpicBundleEdgeData = {
+      individualEdges: bundle.links,
+      bendPoints: [],
+      color: dominantColor,
+      label,
+    };
+    edges.push({
+      id: bundleEdgeId,
+      source: bundle.srcEpicId,
+      target: bundle.tgtEpicId,
+      type: "crossEpicBundle",
+      animated: false,
+      style: { stroke: dominantColor, strokeWidth: 3 },
+      data: bundleData,
+    });
+  }
+
+  // ── 4e. Back-patch cross-epic badge counts onto issueNode data ────────────
+  if (crossEpicOutCount.size > 0 || crossEpicInCount.size > 0) {
+    for (const node of nodes) {
+      if (node.type !== "issueNode") continue;
+      const out = crossEpicOutCount.get(node.id);
+      const inc = crossEpicInCount.get(node.id);
+      if (out || inc) {
+        // IssueNodeData has an index signature so this cast is safe
+        const data = node.data as IssueNodeData;
+        if (out) data.crossEpicOut = out;
+        if (inc) data.crossEpicIn  = inc;
+      }
     }
   }
 
