@@ -133,6 +133,12 @@ export interface IssueNodeData {
   bgColor: string;
   textColor: string;
   subtaskCount?: number;
+  /** Number of cross-epic outgoing dependency edges (e.g. "blocks" another epic's tasks).
+   *  Shown as an ↗ badge on the node card. Populated by graphStructure Phase 4c. */
+  crossEpicOut?: number;
+  /** Number of cross-epic incoming dependency edges (e.g. "blocked by" another epic's tasks).
+   *  Shown as an ↙ badge on the node card. Populated by graphStructure Phase 4c. */
+  crossEpicIn?: number;
   [key: string]: unknown;
 }
 
@@ -167,4 +173,25 @@ export interface StoryGroupNodeData {
 export interface GraphData {
   nodes: Node[];
   edges: Edge[];
+}
+
+/** One resolved link within a cross-epic bundle — the raw issue keys and link type. */
+export interface CrossEpicLink {
+  sourceKey: string;
+  targetKey: string;
+  typeName: string;
+  color: string;
+}
+
+/** Data stored on a `crossEpicBundle` edge. */
+export interface CrossEpicBundleEdgeData {
+  /** All individual cross-epic links aggregated into this bundle. */
+  individualEdges: CrossEpicLink[];
+  /** ELK-computed bend points (populated after layout, same format as ElkEdge). */
+  bendPoints: Array<{ x: number; y: number }>;
+  /** Dominant color (from the most common link type in the bundle). */
+  color: string;
+  /** Display label, e.g. "3 blocks" or "2 blocks, 1 relates to". */
+  label: string;
+  [key: string]: unknown;
 }
