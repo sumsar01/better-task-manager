@@ -89,6 +89,7 @@ function CrossEpicBundleEdge({
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
               pointerEvents: "none",
+              zIndex: 10,
               padding: "3px 8px",
               borderRadius: 999,
               fontSize: 11,

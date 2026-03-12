@@ -134,11 +134,17 @@ export interface IssueNodeData {
   textColor: string;
   subtaskCount?: number;
   /** Number of cross-epic outgoing dependency edges (e.g. "blocks" another epic's tasks).
-   *  Shown as an ↗ badge on the node card. Populated by graphStructure Phase 4c. */
+   *  Shown as an ↗ badge on the node card. Populated by graphStructure Phase 4e. */
   crossEpicOut?: number;
   /** Number of cross-epic incoming dependency edges (e.g. "blocked by" another epic's tasks).
-   *  Shown as an ↙ badge on the node card. Populated by graphStructure Phase 4c. */
+   *  Shown as an ↙ badge on the node card. Populated by graphStructure Phase 4e. */
   crossEpicIn?: number;
+  /** Number of cross-story outgoing dependency edges (e.g. "blocks" tasks in another story).
+   *  Shown as an ↗ badge on the node card. Populated by graphStructure Phase 4e′. */
+  crossStoryOut?: number;
+  /** Number of cross-story incoming dependency edges (e.g. "blocked by" tasks in another story).
+   *  Shown as an ↙ badge on the node card. Populated by graphStructure Phase 4e′. */
+  crossStoryIn?: number;
   [key: string]: unknown;
 }
 
@@ -192,6 +198,27 @@ export interface CrossEpicBundleEdgeData {
   /** Dominant color (from the most common link type in the bundle). */
   color: string;
   /** Display label, e.g. "3 blocks" or "2 blocks, 1 relates to". */
+  label: string;
+  [key: string]: unknown;
+}
+
+/** One resolved link within a cross-story bundle — the raw issue keys and link type. */
+export interface CrossStoryLink {
+  sourceKey: string;
+  targetKey: string;
+  typeName: string;
+  color: string;
+}
+
+/** Data stored on a `crossStoryBundle` edge. */
+export interface CrossStoryBundleEdgeData {
+  /** All individual cross-story links aggregated into this bundle. */
+  individualEdges: CrossStoryLink[];
+  /** ELK-computed bend points (populated after layout, same format as ElkEdge). */
+  bendPoints: Array<{ x: number; y: number }>;
+  /** Dominant color (from the most common link type in the bundle). */
+  color: string;
+  /** Display label, e.g. "2 blocks". */
   label: string;
   [key: string]: unknown;
 }

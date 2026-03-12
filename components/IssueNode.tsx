@@ -177,6 +177,28 @@ function IssueNode({ data, selected }: NodeProps<IssueNodeType>) {
               </span>
             )}
 
+            {/* Cross-story outgoing badge — this node blocks tasks in another story */}
+            {data.crossStoryOut != null && data.crossStoryOut > 0 && (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md tracking-wide flex items-center gap-0.5"
+                style={{ color: "#9a3412", background: "#ffedd5" }}
+                title={`Blocks ${data.crossStoryOut} task${data.crossStoryOut === 1 ? "" : "s"} in another story`}
+              >
+                ↗ {data.crossStoryOut}
+              </span>
+            )}
+
+            {/* Cross-story incoming badge — this node is blocked by tasks in another story */}
+            {data.crossStoryIn != null && data.crossStoryIn > 0 && (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md tracking-wide flex items-center gap-0.5"
+                style={{ color: "#991b1b", background: "#fee2e2" }}
+                title={`Blocked by ${data.crossStoryIn} task${data.crossStoryIn === 1 ? "" : "s"} in another story`}
+              >
+                ↙ {data.crossStoryIn}
+              </span>
+            )}
+
             {/* Assignee avatar */}
             {data.assignee && (
               <span

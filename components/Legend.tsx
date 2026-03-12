@@ -3,6 +3,7 @@ const LEGEND_ITEMS = [
   { color: "#94a3b8", label: "Relates to", dash: false, bold: false },
   { color: "#a855f7", label: "Clones", dash: false, bold: false },
   { color: "#ef4444", label: "Cross-epic bundle", dash: false, bold: true },
+  { color: "#ef4444", label: "Cross-story bundle", dash: false, bold: false, strokeWidth: 2.5 },
 ];
 
 const STATUS_ITEMS = [
@@ -14,6 +15,8 @@ const STATUS_ITEMS = [
 const BADGE_ITEMS = [
   { bg: "#ffedd5", text: "#9a3412", symbol: "↗", label: "Blocks cross-epic" },
   { bg: "#fee2e2", text: "#991b1b", symbol: "↙", label: "Blocked cross-epic" },
+  { bg: "#f97316", text: "#ffffff", symbol: "↗", label: "Blocks cross-story" },
+  { bg: "#ef4444", text: "#ffffff", symbol: "↙", label: "Blocked cross-story" },
 ];
 
 export default function Legend() {
@@ -23,13 +26,13 @@ export default function Legend() {
         Relationships
       </p>
       <ul className="flex flex-col gap-1.5">
-        {LEGEND_ITEMS.map(({ color, label, dash, bold }) => (
+        {LEGEND_ITEMS.map(({ color, label, dash, bold, strokeWidth }) => (
           <li key={label} className="flex items-center gap-2.5">
             <svg width="20" height="8" viewBox="0 0 20 8" fill="none" className="shrink-0">
               <line
                 x1="0" y1="4" x2="20" y2="4"
                 stroke={color}
-                strokeWidth={bold ? 3 : 2}
+                strokeWidth={strokeWidth ?? (bold ? 3 : 2)}
                 strokeLinecap="round"
                 strokeDasharray={dash ? "4 3" : undefined}
               />

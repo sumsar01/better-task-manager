@@ -26,7 +26,7 @@ import { diffIssues } from "@/lib/diffGraph";
 import { computeCriticalPath } from "@/lib/criticalPath";
 import type { JiraIssue } from "@/lib/jira";
 import type { IssueNodeData, TaskGroupNodeData, EpicGroupNodeData, StoryGroupNodeData } from "@/lib/buildGraph";
-import type { CrossEpicBundleEdgeData } from "@/lib/graphConstants";
+import type { CrossEpicBundleEdgeData, CrossStoryBundleEdgeData } from "@/lib/graphConstants";
 
 /** Discriminated union of all node types used in the graph. */
 type AnyNode =
@@ -36,7 +36,7 @@ type AnyNode =
   | Node<StoryGroupNodeData, "storyGroupNode">;
 
 const nodeTypes = { issueNode: IssueNode, taskGroupNode: TaskGroupNode, epicGroupNode: EpicGroupNode, storyGroupNode: StoryGroupNode };
-const edgeTypes = { elkEdge: ElkEdge, crossEpicBundle: CrossEpicBundleEdge };
+const edgeTypes = { elkEdge: ElkEdge, crossEpicBundle: CrossEpicBundleEdge, crossStoryBundle: CrossEpicBundleEdge };
 const FIT_VIEW_OPTIONS = { padding: 0.2 } as const;
 const PRO_OPTIONS = { hideAttribution: true } as const;
 
@@ -259,6 +259,16 @@ export default function GraphView({ issues, latestIssues, onNodeSelect, selected
       for (const edge of edgesRef.current) {
         if (edge.type === "crossEpicBundle") {
           const bundleData = edge.data as CrossEpicBundleEdgeData | undefined;
+          const involved = bundleData?.individualEdges?.some(
+            (link) => link.sourceKey === clickedKey || link.targetKey === clickedKey,
+          ) ?? false;
+          if (involved) {
+            connectedEdges.add(edge.id);
+            connectedNodes.add(edge.source);
+            connectedNodes.add(edge.target);
+          }
+        } else if (edge.type === "crossStoryBundle") {
+          const bundleData = edge.data as CrossStoryBundleEdgeData | undefined;
           const involved = bundleData?.individualEdges?.some(
             (link) => link.sourceKey === clickedKey || link.targetKey === clickedKey,
           ) ?? false;
