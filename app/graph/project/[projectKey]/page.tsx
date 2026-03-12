@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import GraphView from "@/components/GraphView";
+import EpicTimelineView from "@/components/EpicTimelineView";
+import ViewTabs from "@/components/ViewTabs";
+import type { ViewTab } from "@/components/ViewTabs";
 import IssueDetailPanel from "@/components/IssueDetailPanel";
 import GraphPageHeader from "@/components/GraphPageHeader";
 import { GraphLoadingState, GraphErrorState, GraphEmptyState } from "@/components/GraphStates";
@@ -37,6 +40,7 @@ export default function ProjectGraphPage() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<ViewTab>("graph");
 
   const isMountedRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
@@ -149,6 +153,12 @@ export default function ProjectGraphPage() {
   // (no background polling needed; user can navigate away and back to refresh)
   const latestIssues = issues;
 
+  const handleViewChange = useCallback((tab: ViewTab) => {
+    setActiveView(tab);
+    // Clear selection when switching views
+    setSelectedKey(null);
+  }, []);
+
   return (
     <div className="flex flex-col h-screen bg-slate-50">
       <GraphPageHeader
@@ -160,11 +170,14 @@ export default function ProjectGraphPage() {
         error={error}
       />
 
-      {/* Graph + panel */}
+      <ViewTabs activeTab={activeView} onTabChange={handleViewChange} />
+
+      {/* Graph / Timeline + detail panel */}
       <div className="flex flex-1 min-h-0 relative">
-        {/* Graph */}
-        <div className={`relative ${selectedKey ? "w-[75%]" : "w-full"} transition-[width] duration-200`}>
-        {(loading || expandProgress !== null) && (
+        {/* Left pane — graph or timeline */}
+        <div className={`flex flex-col relative ${selectedKey ? "w-[75%]" : "w-full"} transition-[width] duration-200`}>
+          {/* Loading overlay */}
+          {(loading || expandProgress !== null) && (
             <GraphLoadingState progress={expandProgress} label="Loading epics…" />
           )}
 
@@ -174,11 +187,19 @@ export default function ProjectGraphPage() {
             <GraphEmptyState message="No epics found for this project." />
           )}
 
-          {!loading && !error && issues.length > 0 && (
+          {!loading && !error && issues.length > 0 && activeView === "graph" && (
             <GraphView
               issues={issues}
               latestIssues={latestIssues}
               onNodeSelect={handleNodeSelect}
+              selectedKey={selectedKey}
+            />
+          )}
+
+          {!loading && !error && issues.length > 0 && activeView === "timeline" && (
+            <EpicTimelineView
+              issues={issues}
+              onEpicSelect={handleNodeSelect}
               selectedKey={selectedKey}
             />
           )}
