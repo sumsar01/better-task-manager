@@ -167,6 +167,12 @@ export interface StoryGroupNodeData {
   storyKey: string;
   /** Display name / summary of the story */
   storySummary: string;
+  /** Number of cross-story outgoing dependency edges from subtasks in this group.
+   *  Shown as an ↗ badge on the story group header. Populated by graphStructure Phase 4d′. */
+  crossStoryOut?: number;
+  /** Number of cross-story incoming dependency edges to subtasks in this group.
+   *  Shown as an ↙ badge on the story group header. Populated by graphStructure Phase 4d′. */
+  crossStoryIn?: number;
   [key: string]: unknown;
 }
 
@@ -192,6 +198,27 @@ export interface CrossEpicBundleEdgeData {
   /** Dominant color (from the most common link type in the bundle). */
   color: string;
   /** Display label, e.g. "3 blocks" or "2 blocks, 1 relates to". */
+  label: string;
+  [key: string]: unknown;
+}
+
+/** One resolved link within a cross-story bundle — the raw issue keys and link type. */
+export interface CrossStoryLink {
+  sourceKey: string;
+  targetKey: string;
+  typeName: string;
+  color: string;
+}
+
+/** Data stored on a `crossStoryBundle` edge. */
+export interface CrossStoryBundleEdgeData {
+  /** All individual cross-story links aggregated into this bundle. */
+  individualEdges: CrossStoryLink[];
+  /** ELK-computed bend points (populated after layout, same format as ElkEdge). */
+  bendPoints: Array<{ x: number; y: number }>;
+  /** Dominant color (from the most common link type in the bundle). */
+  color: string;
+  /** Display label, e.g. "2 blocks". */
   label: string;
   [key: string]: unknown;
 }

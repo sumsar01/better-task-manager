@@ -23,7 +23,7 @@ const STORY_HEADER_TEXT = "#0e7490";
  *   Epic (bold colored header) > Story (subtle border + label) > Task
  */
 function StoryGroupNode({ data, width, height }: NodeProps<StoryGroupNodeType>) {
-  const { storyKey, storySummary } = data;
+  const { storyKey, storySummary, crossStoryOut, crossStoryIn } = data;
 
   const containerWidth = (width as number | undefined) ?? 320;
   const containerHeight = (height as number | undefined) ?? 120;
@@ -87,6 +87,42 @@ function StoryGroupNode({ data, width, height }: NodeProps<StoryGroupNodeType>) 
           >
             {storySummary}
           </span>
+          {/* Cross-story outgoing badge */}
+          {crossStoryOut != null && crossStoryOut > 0 && (
+            <span
+              title={`${crossStoryOut} cross-story outgoing edge${crossStoryOut === 1 ? "" : "s"}`}
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: "#fff",
+                background: "#f97316",
+                borderRadius: 4,
+                padding: "1px 5px",
+                whiteSpace: "nowrap",
+                lineHeight: "16px",
+              }}
+            >
+              ↗ {crossStoryOut}
+            </span>
+          )}
+          {/* Cross-story incoming badge */}
+          {crossStoryIn != null && crossStoryIn > 0 && (
+            <span
+              title={`${crossStoryIn} cross-story incoming edge${crossStoryIn === 1 ? "" : "s"}`}
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: "#fff",
+                background: "#ef4444",
+                borderRadius: 4,
+                padding: "1px 5px",
+                whiteSpace: "nowrap",
+                lineHeight: "16px",
+              }}
+            >
+              ↙ {crossStoryIn}
+            </span>
+          )}
         </div>
       </div>
 

@@ -28,6 +28,8 @@ import type {
   StoryGroupNodeData,
   CrossEpicBundleEdgeData,
   CrossEpicLink,
+  CrossStoryBundleEdgeData,
+  CrossStoryLink,
 } from "./graphConstants";
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -599,6 +601,19 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
   const crossEpicOutCount = new Map<string, number>();
   const crossEpicInCount  = new Map<string, number>();
 
+  // Map: `${srcStoryGroupId}--${tgtStoryGroupId}` → accumulated cross-story bundle data
+  interface StoryBundleAccum {
+    srcStoryId: string;
+    tgtStoryId: string;
+    links: CrossStoryLink[];
+    typeCounts: Map<string, number>;
+  }
+  const storyBundleMap = new Map<string, StoryBundleAccum>();
+
+  // Per raw issue key: how many cross-story outgoing / incoming edges
+  const crossStoryOutCount = new Map<string, number>();
+  const crossStoryInCount  = new Map<string, number>();
+
   function addCrossEpicLink(
     srcRaw: string, tgtRaw: string,
     srcEpicId: string, tgtEpicId: string,
@@ -619,6 +634,25 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
       // Only count after confirmed add — prevents double-counting from outward+inward iterations
       crossEpicOutCount.set(srcRaw, (crossEpicOutCount.get(srcRaw) ?? 0) + 1);
       crossEpicInCount.set(tgtRaw,  (crossEpicInCount.get(tgtRaw)  ?? 0) + 1);
+    }
+  }
+
+  function addCrossStoryLink(
+    srcRaw: string, tgtRaw: string,
+    srcStoryId: string, tgtStoryId: string,
+    typeName: string, color: string,
+  ) {
+    const bundleKey = `${srcStoryId}--${tgtStoryId}`;
+    if (!storyBundleMap.has(bundleKey)) {
+      storyBundleMap.set(bundleKey, { srcStoryId, tgtStoryId, links: [], typeCounts: new Map() });
+    }
+    const bundle = storyBundleMap.get(bundleKey)!;
+    const linkKey = `${srcRaw}--${tgtRaw}`;
+    if (!bundle.links.find(l => `${l.sourceKey}--${l.targetKey}` === linkKey)) {
+      bundle.links.push({ sourceKey: srcRaw, targetKey: tgtRaw, typeName, color });
+      bundle.typeCounts.set(typeName, (bundle.typeCounts.get(typeName) ?? 0) + 1);
+      crossStoryOutCount.set(srcRaw, (crossStoryOutCount.get(srcRaw) ?? 0) + 1);
+      crossStoryInCount.set(tgtRaw,  (crossStoryInCount.get(tgtRaw)  ?? 0) + 1);
     }
   }
 
@@ -643,22 +677,29 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
           const tgtEpicId = getEpicGroupForKey(link.outwardIssue.key) ?? tgt;
           addCrossEpicLink(issue.key, link.outwardIssue.key, srcEpicId, tgtEpicId, typeName, getEdgeColor(typeName));
         } else {
-          const edgeId = `${src}-${tgt}-${getEdgeLabel(typeName)}`;
-          if (!edgeSet.has(edgeId)) {
-            edgeSet.add(edgeId);
-            const color = getEdgeColor(typeName);
-            edges.push({
-              id: edgeId,
-              source: src,
-              target: tgt,
-              label: getEdgeLabel(typeName),
-              type: "elkEdge",
-              animated: typeName.toLowerCase() === "blocks",
-              style: { stroke: color, strokeWidth: 2 },
-              labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
-              labelBgStyle: { fill: "white", fillOpacity: 0.85 },
-              data: { color, bendPoints: [] },
-            });
+          const srcStoryId = issueStoryGroupId.get(issue.key);
+          const tgtStoryId = issueStoryGroupId.get(link.outwardIssue.key);
+          const isCrossStory = srcStoryId !== undefined && tgtStoryId !== undefined && srcStoryId !== tgtStoryId;
+          if (isCrossStory) {
+            addCrossStoryLink(issue.key, link.outwardIssue.key, srcStoryId!, tgtStoryId!, typeName, getEdgeColor(typeName));
+          } else {
+            const edgeId = `${src}-${tgt}-${getEdgeLabel(typeName)}`;
+            if (!edgeSet.has(edgeId)) {
+              edgeSet.add(edgeId);
+              const color = getEdgeColor(typeName);
+              edges.push({
+                id: edgeId,
+                source: src,
+                target: tgt,
+                label: getEdgeLabel(typeName),
+                type: "elkEdge",
+                animated: typeName.toLowerCase() === "blocks",
+                style: { stroke: color, strokeWidth: 2 },
+                labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
+                labelBgStyle: { fill: "white", fillOpacity: 0.85 },
+                data: { color, bendPoints: [] },
+              });
+            }
           }
         }
       }
@@ -686,22 +727,29 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
           // Use the outward type name so the stored label is canonical (e.g. "blocks")
           addCrossEpicLink(rawBlocker, rawBlocked, srcEpicId, tgtEpicId, link.type.outward, getEdgeColor(link.type.outward.toLowerCase()));
         } else {
-          const edgeId = `${source}-${target}-${getEdgeLabel(typeName)}`;
-          if (!edgeSet.has(edgeId)) {
-            edgeSet.add(edgeId);
-            const color = getEdgeColor(normalised);
-            edges.push({
-              id: edgeId,
-              source,
-              target,
-              label: getEdgeLabel(typeName),
-              type: "elkEdge",
-              animated: normalised.includes("block"),
-              style: { stroke: color, strokeWidth: 2 },
-              labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
-              labelBgStyle: { fill: "white", fillOpacity: 0.85 },
-              data: { color, bendPoints: [] },
-            });
+          const srcStoryId = issueStoryGroupId.get(rawBlocker);
+          const tgtStoryId = issueStoryGroupId.get(rawBlocked);
+          const isCrossStory = srcStoryId !== undefined && tgtStoryId !== undefined && srcStoryId !== tgtStoryId;
+          if (isCrossStory) {
+            addCrossStoryLink(rawBlocker, rawBlocked, srcStoryId!, tgtStoryId!, link.type.outward, getEdgeColor(link.type.outward.toLowerCase()));
+          } else {
+            const edgeId = `${source}-${target}-${getEdgeLabel(typeName)}`;
+            if (!edgeSet.has(edgeId)) {
+              edgeSet.add(edgeId);
+              const color = getEdgeColor(normalised);
+              edges.push({
+                id: edgeId,
+                source,
+                target,
+                label: getEdgeLabel(typeName),
+                type: "elkEdge",
+                animated: normalised.includes("block"),
+                style: { stroke: color, strokeWidth: 2 },
+                labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
+                labelBgStyle: { fill: "white", fillOpacity: 0.85 },
+                data: { color, bendPoints: [] },
+              });
+            }
           }
         }
       }
@@ -753,6 +801,56 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
         const data = node.data as IssueNodeData;
         if (out) data.crossEpicOut = out;
         if (inc) data.crossEpicIn  = inc;
+      }
+    }
+  }
+
+  // ── 4d′. Emit bundle edges for cross-story links ──────────────────────────
+  for (const bundle of storyBundleMap.values()) {
+    let label = "";
+    const sorted = [...bundle.typeCounts.entries()].sort((a, b) => b[1] - a[1]);
+    if (sorted.length === 1) {
+      label = `${sorted[0][1]} ${getEdgeLabel(sorted[0][0])}`;
+    } else {
+      label = sorted.map(([t, n]) => `${n} ${getEdgeLabel(t)}`).join(", ");
+    }
+    const dominantColor = getEdgeColor(sorted[0][0]);
+    const bundleEdgeId = `story_bundle__${bundle.srcStoryId}--${bundle.tgtStoryId}`;
+    const bundleData: CrossStoryBundleEdgeData = {
+      individualEdges: bundle.links,
+      bendPoints: [],
+      color: dominantColor,
+      label,
+    };
+    edges.push({
+      id: bundleEdgeId,
+      source: bundle.srcStoryId,
+      target: bundle.tgtStoryId,
+      type: "crossStoryBundle",
+      animated: false,
+      style: { stroke: dominantColor, strokeWidth: 2.5 },
+      data: bundleData,
+    });
+  }
+
+  // ── 4e′. Back-patch cross-story badge counts onto storyGroupNode data ─────
+  if (crossStoryOutCount.size > 0 || crossStoryInCount.size > 0) {
+    for (const node of nodes) {
+      if (node.type !== "storyGroupNode") continue;
+      // storyGroupNode id is `story_group__STORY-X`; collect counts from all
+      // raw issue keys that live inside this story group.
+      const storyGroupId = node.id;
+      let totalOut = 0;
+      let totalIn  = 0;
+      for (const [issueKey, sgId] of issueStoryGroupId.entries()) {
+        if (sgId !== storyGroupId) continue;
+        totalOut += crossStoryOutCount.get(issueKey) ?? 0;
+        totalIn  += crossStoryInCount.get(issueKey)  ?? 0;
+      }
+      if (totalOut > 0 || totalIn > 0) {
+        const data = node.data as StoryGroupNodeData;
+        if (totalOut > 0) data.crossStoryOut = totalOut;
+        if (totalIn  > 0) data.crossStoryIn  = totalIn;
       }
     }
   }
