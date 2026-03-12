@@ -416,6 +416,11 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
 
       childKeys.add(sk);
       issueGroupId.set(sk, groupId);
+      // If this subtask's parent task lives inside a story group, register the
+      // subtask in issueStoryGroupId too so cross-story detection works for it.
+      if (parentStoryGroupId) {
+        issueStoryGroupId.set(sk, parentStoryGroupId);
+      }
     }
   }
 
