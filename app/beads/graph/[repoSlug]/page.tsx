@@ -164,6 +164,7 @@ export default function BeadsGraphPage() {
               issues={issues}
               latestIssues={issues}
               onNodeSelect={handleNodeSelect}
+              selectedKey={selectedKey}
             />
           )}
         </div>

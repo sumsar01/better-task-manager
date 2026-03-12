@@ -35,8 +35,11 @@ function IssueNode({ data, selected }: NodeProps<IssueNodeType>) {
       : data.bgColor;
 
   // ── Compact chip for subtask nodes ───────────────────────────────────────
-  // Subtasks show only the title. The left border color communicates status (or external).
-  if (data.isSubtask) {
+  // Subtasks that live inside a taskGroupNode render as compact title-only chips.
+  // Subtasks placed directly inside a storyGroupNode (insideGroup: false) get the
+  // full card treatment so they show status, assignee, and connection handles for
+  // dependency edges — they are first-class nodes in the graph, not indented chips.
+  if (data.isSubtask && data.insideGroup) {
     return (
       <div
         style={{
