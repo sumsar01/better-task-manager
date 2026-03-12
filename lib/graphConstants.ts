@@ -134,11 +134,17 @@ export interface IssueNodeData {
   textColor: string;
   subtaskCount?: number;
   /** Number of cross-epic outgoing dependency edges (e.g. "blocks" another epic's tasks).
-   *  Shown as an ↗ badge on the node card. Populated by graphStructure Phase 4c. */
+   *  Shown as an ↗ badge on the node card. Populated by graphStructure Phase 4e. */
   crossEpicOut?: number;
   /** Number of cross-epic incoming dependency edges (e.g. "blocked by" another epic's tasks).
-   *  Shown as an ↙ badge on the node card. Populated by graphStructure Phase 4c. */
+   *  Shown as an ↙ badge on the node card. Populated by graphStructure Phase 4e. */
   crossEpicIn?: number;
+  /** Number of cross-story outgoing dependency edges (e.g. "blocks" tasks in another story).
+   *  Shown as an ↗ badge on the node card. Populated by graphStructure Phase 4e′. */
+  crossStoryOut?: number;
+  /** Number of cross-story incoming dependency edges (e.g. "blocked by" tasks in another story).
+   *  Shown as an ↙ badge on the node card. Populated by graphStructure Phase 4e′. */
+  crossStoryIn?: number;
   [key: string]: unknown;
 }
 
@@ -167,12 +173,6 @@ export interface StoryGroupNodeData {
   storyKey: string;
   /** Display name / summary of the story */
   storySummary: string;
-  /** Number of cross-story outgoing dependency edges from subtasks in this group.
-   *  Shown as an ↗ badge on the story group header. Populated by graphStructure Phase 4d′. */
-  crossStoryOut?: number;
-  /** Number of cross-story incoming dependency edges to subtasks in this group.
-   *  Shown as an ↙ badge on the story group header. Populated by graphStructure Phase 4d′. */
-  crossStoryIn?: number;
   [key: string]: unknown;
 }
 

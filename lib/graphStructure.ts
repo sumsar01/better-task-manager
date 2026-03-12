@@ -845,24 +845,17 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     });
   }
 
-  // ── 4e′. Back-patch cross-story badge counts onto storyGroupNode data ─────
+  // ── 4e′. Back-patch cross-story badge counts onto individual issueNode data ─
+  // Mirrors Phase 4e exactly: iterate issueNode nodes and patch per raw issue key.
   if (crossStoryOutCount.size > 0 || crossStoryInCount.size > 0) {
     for (const node of nodes) {
-      if (node.type !== "storyGroupNode") continue;
-      // storyGroupNode id is `story_group__STORY-X`; collect counts from all
-      // raw issue keys that live inside this story group.
-      const storyGroupId = node.id;
-      let totalOut = 0;
-      let totalIn  = 0;
-      for (const [issueKey, sgId] of issueStoryGroupId.entries()) {
-        if (sgId !== storyGroupId) continue;
-        totalOut += crossStoryOutCount.get(issueKey) ?? 0;
-        totalIn  += crossStoryInCount.get(issueKey)  ?? 0;
-      }
-      if (totalOut > 0 || totalIn > 0) {
-        const data = node.data as StoryGroupNodeData;
-        if (totalOut > 0) data.crossStoryOut = totalOut;
-        if (totalIn  > 0) data.crossStoryIn  = totalIn;
+      if (node.type !== "issueNode") continue;
+      const out = crossStoryOutCount.get(node.id);
+      const inc = crossStoryInCount.get(node.id);
+      if (out || inc) {
+        const data = node.data as IssueNodeData;
+        if (out) data.crossStoryOut = out;
+        if (inc) data.crossStoryIn  = inc;
       }
     }
   }
