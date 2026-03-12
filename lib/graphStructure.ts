@@ -720,6 +720,7 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
             if (!edgeSet.has(edgeId)) {
               edgeSet.add(edgeId);
               const isBlocking = typeName.toLowerCase() === "blocks";
+              const blockerDone = isBlocking && issue.fields.status.statusCategory.key === "done";
               const color = isBlocking
                 ? getBlockingEdgeColor(issue.fields.status.statusCategory.key)
                 : getEdgeColor(typeName);
@@ -728,7 +729,7 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
                 id: edgeId,
                 source: src,
                 target: tgt,
-                label: getEdgeLabel(typeName),
+                label: blockerDone ? undefined : getEdgeLabel(typeName),
                 type: "elkEdge",
                 animated,
                 style: { stroke: color, strokeWidth: 2 },
@@ -783,6 +784,7 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
               edgeSet.add(edgeId);
               const isBlocking = normalised.includes("block");
               const blockerCat = issueMap.get(rawBlocker)?.fields.status.statusCategory.key ?? "new";
+              const blockerDone = isBlocking && blockerCat === "done";
               const color = isBlocking
                 ? getBlockingEdgeColor(blockerCat)
                 : getEdgeColor(normalised);
@@ -791,7 +793,7 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
                 id: edgeId,
                 source,
                 target,
-                label: getEdgeLabel(typeName),
+                label: blockerDone ? undefined : getEdgeLabel(typeName),
                 type: "elkEdge",
                 animated,
                 style: { stroke: color, strokeWidth: 2 },
