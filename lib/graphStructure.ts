@@ -585,6 +585,13 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     return epicGroupIds.get(epicKey);
   }
 
+  // Helper: get the story group ID for any issue key — covers both:
+  // - direct members/subtasks registered in issueStoryGroupId
+  // - the story-header issue itself (key === storyKey of a storyGroupNode)
+  function getStoryGroupForKey(key: string): string | undefined {
+    return issueStoryGroupId.get(key) ?? storyGroupIds.get(key);
+  }
+
   // ── 4c. Build edges ──────────────────────────────────────────────────────
   // Cross-epic links are aggregated into bundle edges (one per directed epic
   // pair) rather than drawn as individual dashed lines.  Within-epic edges are
@@ -682,8 +689,8 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
           const tgtEpicId = getEpicGroupForKey(link.outwardIssue.key) ?? tgt;
           addCrossEpicLink(issue.key, link.outwardIssue.key, srcEpicId, tgtEpicId, typeName, getEdgeColor(typeName));
         } else {
-          const srcStoryId = issueStoryGroupId.get(issue.key);
-          const tgtStoryId = issueStoryGroupId.get(link.outwardIssue.key);
+          const srcStoryId = getStoryGroupForKey(issue.key);
+          const tgtStoryId = getStoryGroupForKey(link.outwardIssue.key);
           const isCrossStory = srcStoryId !== undefined && tgtStoryId !== undefined && srcStoryId !== tgtStoryId;
           if (isCrossStory) {
             addCrossStoryLink(issue.key, link.outwardIssue.key, srcStoryId!, tgtStoryId!, typeName, getEdgeColor(typeName));
@@ -732,8 +739,8 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
           // Use the outward type name so the stored label is canonical (e.g. "blocks")
           addCrossEpicLink(rawBlocker, rawBlocked, srcEpicId, tgtEpicId, link.type.outward, getEdgeColor(link.type.outward.toLowerCase()));
         } else {
-          const srcStoryId = issueStoryGroupId.get(rawBlocker);
-          const tgtStoryId = issueStoryGroupId.get(rawBlocked);
+          const srcStoryId = getStoryGroupForKey(rawBlocker);
+          const tgtStoryId = getStoryGroupForKey(rawBlocked);
           const isCrossStory = srcStoryId !== undefined && tgtStoryId !== undefined && srcStoryId !== tgtStoryId;
           if (isCrossStory) {
             addCrossStoryLink(rawBlocker, rawBlocked, srcStoryId!, tgtStoryId!, link.type.outward, getEdgeColor(link.type.outward.toLowerCase()));
