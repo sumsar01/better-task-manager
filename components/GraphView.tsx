@@ -244,23 +244,17 @@ export default function GraphView({ issues, latestIssues, onNodeSelect, selected
           nds.map((n) => ({ ...n, style: { ...n.style, opacity: 1 } }))
         );
         setEdges((eds) =>
-          eds.map((e) => {
-            // Bundle edges start hidden (opacity 0) — restore that on deselect.
-            if (e.type === "crossEpicBundle") {
-              return { ...e, style: { ...e.style, opacity: 0 } };
-            }
-            return { ...e, style: { ...e.style, opacity: 1 } };
-          })
+          eds.map((e) => ({ ...e, style: { ...e.style, opacity: 1 } }))
         );
         return;
       }
 
       // Compute connected sets from the stable ref — no side-effects in updaters.
-      // For regular edges: match on source/target.
-      // For bundle edges: match on individualEdges[].sourceKey / targetKey.
+      // For regular edges: match on source/target (resolved node IDs).
+      // For bundle edges: match on individualEdges[].sourceKey / targetKey
+      // (raw issue keys, since bundle source/target are epic group container IDs).
       const connectedNodes = new Set<string>([clickedKey]);
       const connectedEdges = new Set<string>();
-      const revealedBundleEdges = new Set<string>();
 
       for (const edge of edgesRef.current) {
         if (edge.type === "crossEpicBundle") {
@@ -269,9 +263,7 @@ export default function GraphView({ issues, latestIssues, onNodeSelect, selected
             (link) => link.sourceKey === clickedKey || link.targetKey === clickedKey,
           ) ?? false;
           if (involved) {
-            revealedBundleEdges.add(edge.id);
-            // Also consider the epic group container nodes as "connected" so they
-            // are not dimmed when a cross-epic participant is clicked.
+            connectedEdges.add(edge.id);
             connectedNodes.add(edge.source);
             connectedNodes.add(edge.target);
           }
@@ -283,25 +275,13 @@ export default function GraphView({ issues, latestIssues, onNodeSelect, selected
       }
 
       setEdges((eds) =>
-        eds.map((e) => {
-          if (e.type === "crossEpicBundle") {
-            // Reveal matching bundle edges; keep others hidden.
-            return {
-              ...e,
-              style: {
-                ...e.style,
-                opacity: revealedBundleEdges.has(e.id) ? 1 : 0,
-              },
-            };
-          }
-          return {
-            ...e,
-            style: {
-              ...e.style,
-              opacity: connectedEdges.has(e.id) ? 1 : 0.1,
-            },
-          };
-        })
+        eds.map((e) => ({
+          ...e,
+          style: {
+            ...e.style,
+            opacity: connectedEdges.has(e.id) ? 1 : 0.1,
+          },
+        }))
       );
 
       setNodes((nds) =>

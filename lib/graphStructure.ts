@@ -609,14 +609,17 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
       bundleMap.set(bundleKey, { srcEpicId, tgtEpicId, links: [], typeCounts: new Map() });
     }
     const bundle = bundleMap.get(bundleKey)!;
-    // Deduplicate individual links
-    const linkKey = `${srcRaw}--${tgtRaw}--${typeName}`;
-    if (!bundle.links.find(l => `${l.sourceKey}--${l.targetKey}--${l.typeName}` === linkKey)) {
+    // Deduplicate individual links — use canonical normalised type name so that
+    // "blocks" (outward) and "is blocked by" (inward) for the same pair don't
+    // produce two entries. We normalise to the outward/canonical form here.
+    const linkKey = `${srcRaw}--${tgtRaw}`;
+    if (!bundle.links.find(l => `${l.sourceKey}--${l.targetKey}` === linkKey)) {
       bundle.links.push({ sourceKey: srcRaw, targetKey: tgtRaw, typeName, color });
       bundle.typeCounts.set(typeName, (bundle.typeCounts.get(typeName) ?? 0) + 1);
+      // Only count after confirmed add — prevents double-counting from outward+inward iterations
+      crossEpicOutCount.set(srcRaw, (crossEpicOutCount.get(srcRaw) ?? 0) + 1);
+      crossEpicInCount.set(tgtRaw,  (crossEpicInCount.get(tgtRaw)  ?? 0) + 1);
     }
-    crossEpicOutCount.set(srcRaw, (crossEpicOutCount.get(srcRaw) ?? 0) + 1);
-    crossEpicInCount.set(tgtRaw,  (crossEpicInCount.get(tgtRaw)  ?? 0) + 1);
   }
 
   for (const issue of issues) {
@@ -680,7 +683,8 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
         if (isCrossEpic) {
           const srcEpicId = getEpicGroupForKey(rawBlocker) ?? source;
           const tgtEpicId = getEpicGroupForKey(rawBlocked) ?? target;
-          addCrossEpicLink(rawBlocker, rawBlocked, srcEpicId, tgtEpicId, typeName, getEdgeColor(normalised));
+          // Use the outward type name so the stored label is canonical (e.g. "blocks")
+          addCrossEpicLink(rawBlocker, rawBlocked, srcEpicId, tgtEpicId, link.type.outward, getEdgeColor(link.type.outward.toLowerCase()));
         } else {
           const edgeId = `${source}-${target}-${getEdgeLabel(typeName)}`;
           if (!edgeSet.has(edgeId)) {
@@ -733,8 +737,7 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
       target: bundle.tgtEpicId,
       type: "crossEpicBundle",
       animated: false,
-      // Start hidden — revealed by GraphView when a connected node is selected.
-      style: { opacity: 0, stroke: dominantColor, strokeWidth: 3 },
+      style: { stroke: dominantColor, strokeWidth: 3 },
       data: bundleData,
     });
   }
