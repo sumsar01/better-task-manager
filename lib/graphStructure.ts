@@ -39,6 +39,21 @@ function getEdgeColor(linkTypeName: string): string {
   return EDGE_COLORS[normalized] ?? EDGE_COLORS.default;
 }
 
+/**
+ * Returns the edge color for a blocking link, taking into account whether the
+ * blocker (source) issue is already Done.  When the blocker is Done, the block
+ * is resolved and the edge is dimmed to the default grey so it doesn't draw
+ * attention alongside still-active red blocking edges.
+ */
+function getBlockingEdgeColor(blockerStatusCategoryKey: string): string {
+  return blockerStatusCategoryKey === "done" ? EDGE_COLORS.default : EDGE_COLORS.blocks;
+}
+
+/** True when a blocking edge should animate (i.e. the blocker is NOT yet done). */
+function isBlockingEdgeAnimated(blockerStatusCategoryKey: string): boolean {
+  return blockerStatusCategoryKey !== "done";
+}
+
 function getEdgeLabel(linkTypeName: string): string {
   const normalized = linkTypeName.toLowerCase();
   if (normalized === "blocks" || normalized === "is blocked by") return "blocks";
@@ -687,25 +702,35 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
         if (isCrossEpic) {
           const srcEpicId = getEpicGroupForKey(issue.key) ?? src;
           const tgtEpicId = getEpicGroupForKey(link.outwardIssue.key) ?? tgt;
-          addCrossEpicLink(issue.key, link.outwardIssue.key, srcEpicId, tgtEpicId, typeName, getEdgeColor(typeName));
+          const edgeColor = typeName.toLowerCase() === "blocks"
+            ? getBlockingEdgeColor(issue.fields.status.statusCategory.key)
+            : getEdgeColor(typeName);
+          addCrossEpicLink(issue.key, link.outwardIssue.key, srcEpicId, tgtEpicId, typeName, edgeColor);
         } else {
           const srcStoryId = getStoryGroupForKey(issue.key);
           const tgtStoryId = getStoryGroupForKey(link.outwardIssue.key);
           const isCrossStory = srcStoryId !== undefined && tgtStoryId !== undefined && srcStoryId !== tgtStoryId;
           if (isCrossStory) {
-            addCrossStoryLink(issue.key, link.outwardIssue.key, srcStoryId!, tgtStoryId!, typeName, getEdgeColor(typeName));
+            const edgeColor = typeName.toLowerCase() === "blocks"
+              ? getBlockingEdgeColor(issue.fields.status.statusCategory.key)
+              : getEdgeColor(typeName);
+            addCrossStoryLink(issue.key, link.outwardIssue.key, srcStoryId!, tgtStoryId!, typeName, edgeColor);
           } else {
             const edgeId = `${src}-${tgt}-${getEdgeLabel(typeName)}`;
             if (!edgeSet.has(edgeId)) {
               edgeSet.add(edgeId);
-              const color = getEdgeColor(typeName);
+              const isBlocking = typeName.toLowerCase() === "blocks";
+              const color = isBlocking
+                ? getBlockingEdgeColor(issue.fields.status.statusCategory.key)
+                : getEdgeColor(typeName);
+              const animated = isBlocking && isBlockingEdgeAnimated(issue.fields.status.statusCategory.key);
               edges.push({
                 id: edgeId,
                 source: src,
                 target: tgt,
                 label: getEdgeLabel(typeName),
                 type: "elkEdge",
-                animated: typeName.toLowerCase() === "blocks",
+                animated,
                 style: { stroke: color, strokeWidth: 2 },
                 labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
                 labelBgStyle: { fill: "white", fillOpacity: 0.85 },
@@ -737,25 +762,38 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
           const srcEpicId = getEpicGroupForKey(rawBlocker) ?? source;
           const tgtEpicId = getEpicGroupForKey(rawBlocked) ?? target;
           // Use the outward type name so the stored label is canonical (e.g. "blocks")
-          addCrossEpicLink(rawBlocker, rawBlocked, srcEpicId, tgtEpicId, link.type.outward, getEdgeColor(link.type.outward.toLowerCase()));
+          const blockerCat = issueMap.get(rawBlocker)?.fields.status.statusCategory.key ?? "new";
+          const edgeColor = normalised.includes("block")
+            ? getBlockingEdgeColor(blockerCat)
+            : getEdgeColor(link.type.outward.toLowerCase());
+          addCrossEpicLink(rawBlocker, rawBlocked, srcEpicId, tgtEpicId, link.type.outward, edgeColor);
         } else {
           const srcStoryId = getStoryGroupForKey(rawBlocker);
           const tgtStoryId = getStoryGroupForKey(rawBlocked);
           const isCrossStory = srcStoryId !== undefined && tgtStoryId !== undefined && srcStoryId !== tgtStoryId;
           if (isCrossStory) {
-            addCrossStoryLink(rawBlocker, rawBlocked, srcStoryId!, tgtStoryId!, link.type.outward, getEdgeColor(link.type.outward.toLowerCase()));
+            const blockerCat = issueMap.get(rawBlocker)?.fields.status.statusCategory.key ?? "new";
+            const edgeColor = normalised.includes("block")
+              ? getBlockingEdgeColor(blockerCat)
+              : getEdgeColor(link.type.outward.toLowerCase());
+            addCrossStoryLink(rawBlocker, rawBlocked, srcStoryId!, tgtStoryId!, link.type.outward, edgeColor);
           } else {
             const edgeId = `${source}-${target}-${getEdgeLabel(typeName)}`;
             if (!edgeSet.has(edgeId)) {
               edgeSet.add(edgeId);
-              const color = getEdgeColor(normalised);
+              const isBlocking = normalised.includes("block");
+              const blockerCat = issueMap.get(rawBlocker)?.fields.status.statusCategory.key ?? "new";
+              const color = isBlocking
+                ? getBlockingEdgeColor(blockerCat)
+                : getEdgeColor(normalised);
+              const animated = isBlocking && isBlockingEdgeAnimated(blockerCat);
               edges.push({
                 id: edgeId,
                 source,
                 target,
                 label: getEdgeLabel(typeName),
                 type: "elkEdge",
-                animated: normalised.includes("block"),
+                animated,
                 style: { stroke: color, strokeWidth: 2 },
                 labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
                 labelBgStyle: { fill: "white", fillOpacity: 0.85 },
@@ -782,8 +820,14 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     } else {
       label = sorted.map(([t, n]) => `${n} ${getEdgeLabel(t)}`).join(", ");
     }
-    // Dominant color = color of most common type
-    const dominantColor = getEdgeColor(sorted[0][0]);
+    // Dominant color = color of most common type.
+    // If ALL individual blocking links in the bundle are resolved (grey), use grey;
+    // otherwise use the computed dominant color.
+    const dominantTypeColor = getEdgeColor(sorted[0][0]);
+    const allResolved =
+      bundle.links.length > 0 &&
+      bundle.links.every((l) => l.color === EDGE_COLORS.default);
+    const dominantColor = allResolved ? EDGE_COLORS.default : dominantTypeColor;
     const bundleEdgeId = `bundle__${bundle.srcEpicId}--${bundle.tgtEpicId}`;
     const bundleData: CrossEpicBundleEdgeData = {
       individualEdges: bundle.links,
@@ -826,7 +870,12 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     } else {
       label = sorted.map(([t, n]) => `${n} ${getEdgeLabel(t)}`).join(", ");
     }
-    const dominantColor = getEdgeColor(sorted[0][0]);
+    // Same resolved-bundle logic as cross-epic bundles above.
+    const dominantTypeColor = getEdgeColor(sorted[0][0]);
+    const allResolved =
+      bundle.links.length > 0 &&
+      bundle.links.every((l) => l.color === EDGE_COLORS.default);
+    const dominantColor = allResolved ? EDGE_COLORS.default : dominantTypeColor;
     const bundleEdgeId = `story_bundle__${bundle.srcStoryId}--${bundle.tgtStoryId}`;
     const bundleData: CrossStoryBundleEdgeData = {
       individualEdges: bundle.links,
