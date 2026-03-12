@@ -135,6 +135,12 @@ export interface JiraIssue {
     issuelinks: JiraIssueLink[];
     priority?: { name: string; iconUrl?: string };
     labels?: string[];
+    /** ISO date string — when the issue was created. Always present for epics. */
+    created?: string;
+    /** Standard Jira due date field (YYYY-MM-DD). May be null if not set. */
+    duedate?: string | null;
+    /** Epic start date — team-managed projects (YYYY-MM-DD). May be null if not set. */
+    customfield_10015?: string | null;
   };
 }
 
@@ -199,7 +205,7 @@ export async function getProjects(): Promise<JiraProject[]> {
 export async function getEpics(projectKey: string): Promise<JiraIssue[]> {
   return searchIssues(
     `project = "${projectKey}" AND issueType = Epic AND statusCategory != Done ORDER BY created DESC`,
-    ["summary", "status", "assignee", "issuetype", "issuelinks"]
+    ["summary", "status", "assignee", "issuetype", "issuelinks", "created", "duedate", "customfield_10015"]
   );
 }
 
