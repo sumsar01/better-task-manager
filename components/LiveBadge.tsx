@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@/components/ui/badge";
 import { useSecondsTick } from "@/hooks/useSecondsTick";
 
 interface LiveBadgeProps {
@@ -21,9 +22,12 @@ export default function LiveBadge({ lastUpdated }: LiveBadgeProps) {
       : `${Math.floor(seconds / 60)}m ago`;
 
   return (
-    <span className="ml-auto flex items-center gap-1.5 bg-green-50 border border-green-200 text-green-700 text-[11px] font-medium px-2.5 py-1 rounded-full">
+    <Badge
+      variant="outline"
+      className="ml-auto gap-1.5 border-green-200 bg-green-50 text-green-700 text-[11px] font-medium px-2.5 py-1 rounded-full dark:border-green-800 dark:bg-green-950 dark:text-green-400"
+    >
       <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
       {label}
-    </span>
+    </Badge>
   );
 }
