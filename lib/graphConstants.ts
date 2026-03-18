@@ -20,6 +20,12 @@ export const EPIC_PADDING_TOP = 52; // extra room for the header bar
 export const EPIC_PADDING_BOT = 32;
 export const EPIC_NODE_GAP = 24;    // gap between child nodes inside an epic group
 
+// Story group container layout constants
+export const STORY_PADDING_X = 20;
+export const STORY_PADDING_TOP = 36; // room for the story label header
+export const STORY_PADDING_BOT = 20;
+export const STORY_NODE_GAP = 16;    // gap between child nodes inside a story group
+
 // Synthetic key for tasks with no epic parent
 export const UNASSIGNED_EPIC_KEY = "__unassigned__";
 
@@ -127,6 +133,18 @@ export interface IssueNodeData {
   bgColor: string;
   textColor: string;
   subtaskCount?: number;
+  /** Number of cross-epic outgoing dependency edges (e.g. "blocks" another epic's tasks).
+   *  Shown as an ↗ badge on the node card. Populated by graphStructure Phase 4e. */
+  crossEpicOut?: number;
+  /** Number of cross-epic incoming dependency edges (e.g. "blocked by" another epic's tasks).
+   *  Shown as an ↙ badge on the node card. Populated by graphStructure Phase 4e. */
+  crossEpicIn?: number;
+  /** Number of cross-story outgoing dependency edges (e.g. "blocks" tasks in another story).
+   *  Shown as an ↗ badge on the node card. Populated by graphStructure Phase 4e′. */
+  crossStoryOut?: number;
+  /** Number of cross-story incoming dependency edges (e.g. "blocked by" tasks in another story).
+   *  Shown as an ↙ badge on the node card. Populated by graphStructure Phase 4e′. */
+  crossStoryIn?: number;
   [key: string]: unknown;
 }
 
@@ -150,7 +168,57 @@ export interface EpicGroupNodeData {
   [key: string]: unknown;
 }
 
+export interface StoryGroupNodeData {
+  /** Key of the story issue */
+  storyKey: string;
+  /** Display name / summary of the story */
+  storySummary: string;
+  [key: string]: unknown;
+}
+
 export interface GraphData {
   nodes: Node[];
   edges: Edge[];
+}
+
+/** One resolved link within a cross-epic bundle — the raw issue keys and link type. */
+export interface CrossEpicLink {
+  sourceKey: string;
+  targetKey: string;
+  typeName: string;
+  color: string;
+}
+
+/** Data stored on a `crossEpicBundle` edge. */
+export interface CrossEpicBundleEdgeData {
+  /** All individual cross-epic links aggregated into this bundle. */
+  individualEdges: CrossEpicLink[];
+  /** ELK-computed bend points (populated after layout, same format as ElkEdge). */
+  bendPoints: Array<{ x: number; y: number }>;
+  /** Dominant color (from the most common link type in the bundle). */
+  color: string;
+  /** Display label, e.g. "3 blocks" or "2 blocks, 1 relates to". */
+  label: string;
+  [key: string]: unknown;
+}
+
+/** One resolved link within a cross-story bundle — the raw issue keys and link type. */
+export interface CrossStoryLink {
+  sourceKey: string;
+  targetKey: string;
+  typeName: string;
+  color: string;
+}
+
+/** Data stored on a `crossStoryBundle` edge. */
+export interface CrossStoryBundleEdgeData {
+  /** All individual cross-story links aggregated into this bundle. */
+  individualEdges: CrossStoryLink[];
+  /** ELK-computed bend points (populated after layout, same format as ElkEdge). */
+  bendPoints: Array<{ x: number; y: number }>;
+  /** Dominant color (from the most common link type in the bundle). */
+  color: string;
+  /** Display label, e.g. "2 blocks". */
+  label: string;
+  [key: string]: unknown;
 }

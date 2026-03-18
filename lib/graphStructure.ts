@@ -9,6 +9,8 @@ import {
   GROUP_LEFT_INDENT,
   SUBTASK_NODE_HEIGHT,
   EPIC_PADDING_X,
+  STORY_PADDING_X,
+  STORY_PADDING_TOP,
   UNASSIGNED_EPIC_KEY,
   EXTERNAL_LABEL,
   EPIC_COLORS,
@@ -23,6 +25,11 @@ import type {
   IssueNodeData,
   TaskGroupNodeData,
   EpicGroupNodeData,
+  StoryGroupNodeData,
+  CrossEpicBundleEdgeData,
+  CrossEpicLink,
+  CrossStoryBundleEdgeData,
+  CrossStoryLink,
 } from "./graphConstants";
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -30,6 +37,21 @@ import type {
 function getEdgeColor(linkTypeName: string): string {
   const normalized = linkTypeName.toLowerCase();
   return EDGE_COLORS[normalized] ?? EDGE_COLORS.default;
+}
+
+/**
+ * Returns the edge color for a blocking link, taking into account whether the
+ * blocker (source) issue is already Done.  When the blocker is Done, the block
+ * is resolved and the edge is dimmed to the default grey so it doesn't draw
+ * attention alongside still-active red blocking edges.
+ */
+function getBlockingEdgeColor(blockerStatusCategoryKey: string): string {
+  return blockerStatusCategoryKey === "done" ? EDGE_COLORS.default : EDGE_COLORS.blocks;
+}
+
+/** True when a blocking edge should animate (i.e. the blocker is NOT yet done). */
+function isBlockingEdgeAnimated(blockerStatusCategoryKey: string): boolean {
+  return blockerStatusCategoryKey !== "done";
 }
 
 function getEdgeLabel(linkTypeName: string): string {
@@ -105,6 +127,10 @@ export interface GraphStructure {
   issueEpicGroupId: Map<string, string>;
   /** epicKey -> epicGroupNodeId */
   epicGroupIds: Map<string, string>;
+  /** storyKey -> storyGroupNodeId */
+  storyGroupIds: Map<string, string>;
+  /** issueKey -> storyGroupNodeId (for issues inside a story group) */
+  issueStoryGroupId: Map<string, string>;
 }
 
 // ── Structure builder (phases 0-4, no layout) ─────────────────────────────────
@@ -208,6 +234,64 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     }
   }
 
+  // ── 0.7 Build story -> child issues map, create storyGroupNode containers ─
+  // Stories that have direct children in the dataset become group containers,
+  // similar to how epics work. Stories without children remain standalone cards.
+
+  // First, identify which stories have children (by scanning parent relationships).
+  const storyToChildren = new Map<string, string[]>();
+  for (const issue of issues) {
+    if (!issue.fields.parent) continue;
+    const pk = issue.fields.parent.key;
+    const parentIssue = issueMap.get(pk);
+    if (!parentIssue) continue;
+    // Only group children under Stories (not under Epics or Jira-subtask-type issues)
+    if (parentIssue.fields.issuetype.name !== "Story") continue;
+    if (!storyToChildren.has(pk)) storyToChildren.set(pk, []);
+    storyToChildren.get(pk)!.push(issue.key);
+  }
+
+  const storyGroupIds = new Map<string, string>();
+  const issueStoryGroupId = new Map<string, string>();
+
+  for (const [storyKey, childIssueKeys] of storyToChildren.entries()) {
+    if (childIssueKeys.length === 0) continue;
+    const storyIssue = issueMap.get(storyKey);
+    if (!storyIssue) continue;
+
+    const storyGroupId = `story_group__${storyKey}`;
+    storyGroupIds.set(storyKey, storyGroupId);
+
+    const storySummary = storyIssue.fields.summary;
+
+    // The storyGroupNode lives inside an epicGroupNode if epic grouping is on
+    const storyEpicKey = issueToEpic.get(storyKey);
+    const storyEpicGroupId =
+      epicGroupingEnabled && storyEpicKey
+        ? epicGroupIds.get(storyEpicKey)
+        : undefined;
+
+    // Width/height are placeholders - updated after ELK inner layout
+    nodes.push({
+      id: storyGroupId,
+      type: "storyGroupNode",
+      position: { x: 0, y: 0 },
+      width: NODE_WIDTH + STORY_PADDING_X * 2,
+      height: 120,
+      style: { width: NODE_WIDTH + STORY_PADDING_X * 2, height: 120 },
+      selectable: false,
+      ...(storyEpicGroupId ? { parentId: storyEpicGroupId } : {}),
+      data: {
+        storyKey,
+        storySummary,
+      } satisfies StoryGroupNodeData,
+    });
+
+    if (storyEpicGroupId) {
+      issueEpicGroupId.set(storyKey, storyEpicGroupId);
+    }
+  }
+
   // ── 1. Build parent->children map ────────────────────────────────────────
   const parentToSubtasks = new Map<string, string[]>();
 
@@ -218,6 +302,7 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     const parentIssue = issueMap.get(pk)!;
     if (parentIssue.fields.issuetype.subtask) continue;
     if (parentIssue.fields.issuetype.name === "Epic") continue; // tasks are not sub-tasks of epics
+    if (parentIssue.fields.issuetype.name === "Story") continue; // story children handled as storyGroup members
     if (!parentToSubtasks.has(pk)) parentToSubtasks.set(pk, []);
     parentToSubtasks.get(pk)!.push(issue.key);
   }
@@ -243,12 +328,23 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
       currentY += SUBTASK_NODE_HEIGHT + GROUP_INNER_GAP;
     }
 
-    // If epic grouping is on, this taskGroupNode is a child of an epicGroupNode.
-    // Do NOT set extent:"parent" on it - React Flow doesn't support extent:"parent"
-    // on nodes whose own parent is also a child (3-level extent nesting is unsupported).
+    // Determine the parent container for this taskGroupNode.
+    // Priority: storyGroupNode > epicGroupNode > none
+    const parentIssueEpicKey = issueToEpic.get(parentKey);
     const taskGroupEpicId = epicGroupingEnabled
-      ? epicGroupIds.get(issueToEpic.get(parentKey) ?? "")
+      ? epicGroupIds.get(parentIssueEpicKey ?? "")
       : undefined;
+
+    // Check if the parent task lives inside a storyGroupNode
+    const parentStoryGroupId = storyGroupIds.get(
+      issueMap.get(parentKey)?.fields.parent?.key ?? ""
+    );
+    const taskGroupParentId = parentStoryGroupId ?? taskGroupEpicId;
+
+    // If epic grouping is on, this taskGroupNode is a child of an epicGroupNode
+    // (possibly via a storyGroupNode). Do NOT set extent:"parent" on it -
+    // React Flow doesn't support extent:"parent" on nodes whose own parent is
+    // also a child (3-level extent nesting is unsupported).
 
     nodes.push({
       id: groupId,
@@ -258,8 +354,8 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
       height: gHeight,
       style: { width: gWidth, height: gHeight },
       selectable: false,
-      ...(taskGroupEpicId ? { parentId: taskGroupEpicId } : {}),
-      // extent:"parent" intentionally omitted when inside an epicGroupNode
+      ...(taskGroupParentId ? { parentId: taskGroupParentId } : {}),
+      // extent:"parent" intentionally omitted when inside an epicGroupNode or storyGroupNode
       data: {
         parentKey,
         subtaskCount: subtaskKeys.length,
@@ -270,11 +366,14 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     if (taskGroupEpicId) {
       issueEpicGroupId.set(parentKey, taskGroupEpicId);
     }
+    if (parentStoryGroupId) {
+      issueStoryGroupId.set(parentKey, parentStoryGroupId);
+    }
 
-    // When this taskGroupNode lives inside an epicGroupNode (3-level hierarchy),
-    // issueNodes inside it must NOT have extent:"parent" - React Flow does not
-    // support extent:"parent" at depth 3 (grandchild of a parent node).
-    const issueExtent = taskGroupEpicId ? undefined : ("parent" as const);
+    // When this taskGroupNode lives inside an epicGroupNode or storyGroupNode
+    // (3-level hierarchy), issueNodes inside it must NOT have extent:"parent" -
+    // React Flow does not support extent:"parent" at depth 3.
+    const issueExtent = taskGroupParentId ? undefined : ("parent" as const);
 
     const parentIssue = issueMap.get(parentKey)!;
     const parentCat = parentIssue.fields.status.statusCategory.key;
@@ -332,15 +431,79 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
 
       childKeys.add(sk);
       issueGroupId.set(sk, groupId);
+      // If this subtask's parent task lives inside a story group, register the
+      // subtask in issueStoryGroupId too so cross-story detection works for it.
+      if (parentStoryGroupId) {
+        issueStoryGroupId.set(sk, parentStoryGroupId);
+      }
+    }
+  }
+
+  // ── 2.5 Build standalone issueNodes for story-group members that are NOT
+  //        themselves parents of subtasks (i.e. tasks inside a story with no
+  //        sub-tasks of their own become plain issueNode cards inside the story
+  //        group container).
+  for (const [storyKey, childIssueKeys] of storyToChildren.entries()) {
+    const storyGroupId = storyGroupIds.get(storyKey);
+    if (!storyGroupId) continue;
+
+    for (const ck of childIssueKeys) {
+      // Skip if already handled as a taskGroupNode parent (Phase 2 above)
+      if (issueGroupId.has(ck)) continue;
+      // Skip if it is a subtask-type chip (childKeys)
+      if (childKeys.has(ck)) continue;
+
+      const childIssue = issueMap.get(ck);
+      if (!childIssue) continue;
+
+      const cat = childIssue.fields.status.statusCategory.key;
+
+      // The storyGroupNode itself lives inside an epicGroupNode (depth 2),
+      // so its children are at depth 3. Omit extent:"parent" at depth >= 3.
+      const storyEpicGroupId = epicGroupingEnabled
+        ? issueEpicGroupId.get(storyKey)
+        : undefined;
+      const issueExtent = storyEpicGroupId ? undefined : ("parent" as const);
+
+      nodes.push({
+        id: ck,
+        type: "issueNode",
+        parentId: storyGroupId,
+        ...(issueExtent ? { extent: issueExtent } : {}),
+        position: { x: STORY_PADDING_X, y: STORY_PADDING_TOP },
+        data: {
+          key: ck,
+          summary: childIssue.fields.summary,
+          statusName: childIssue.fields.status.name,
+          statusCategory: cat,
+          assignee: childIssue.fields.assignee?.displayName ?? null,
+          issueType: childIssue.fields.issuetype.name,
+          isSubtask: childIssue.fields.issuetype.subtask,
+          // Story-group members are NOT inside a taskGroupNode, so they need
+          // their own handles for dependency edges. insideGroup: false ensures
+          // handles are rendered on the card.
+          insideGroup: false,
+          isEpicStandalone: false,
+          isExternal: (childIssue.fields.labels as string[] | undefined)?.includes(EXTERNAL_LABEL) ?? false,
+          bgColor: statusBgColor(cat),
+          textColor: statusTextColor(cat),
+        } satisfies IssueNodeData,
+      });
+
+      issueStoryGroupId.set(ck, storyGroupId);
     }
   }
 
   // ── 3. Build standalone nodes ────────────────────────────────────────────
   for (const issue of issues) {
     if (issueGroupId.has(issue.key)) continue;
+    if (issueStoryGroupId.has(issue.key)) continue;
     // Epics that already have an epicGroupNode container should not also get
     // a standalone issueNode - that would render them twice (container + card).
     if (epicGroupIds.has(issue.key)) continue;
+    // Stories that already have a storyGroupNode container should not also get
+    // a standalone issueNode.
+    if (storyGroupIds.has(issue.key)) continue;
 
     const cat = issue.fields.status.statusCategory.key;
     const isEpicStandalone =
@@ -408,6 +571,7 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
   // ── 4b. Helper: resolve node ID for edge endpoints ──────────────────────
   // When epic grouping is on, cross-epic edges must connect at the epic group level
   // (or at the task group level if within the same epic group).
+  // Story groups act as an additional level of resolution within an epic.
   function resolveEdgeEndpoint(key: string): string {
     // If this key is an epic that has a group container node, map it to that
     // container's id (e.g. "EPIC-A" -> "epic_group__EPIC-A").  Without this,
@@ -418,6 +582,11 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
       const epicGroupId = epicGroupIds.get(key);
       if (epicGroupId) return epicGroupId;
     }
+
+    // If this key is a story that has a group container node, map it to that
+    // container's id (e.g. "STORY-A" -> "story_group__STORY-A").
+    const storyGroupId = storyGroupIds.get(key);
+    if (storyGroupId) return storyGroupId;
 
     // Resolve to task-group level for tasks that have subtasks
     const taskGroupId = groupIds.get(key) ?? (issueGroupId.get(key) && childKeys.has(key) ? issueGroupId.get(key) : null);
@@ -431,7 +600,89 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     return epicGroupIds.get(epicKey);
   }
 
+  // Helper: get the story group ID for any issue key — covers both:
+  // - direct members/subtasks registered in issueStoryGroupId
+  // - the story-header issue itself (key === storyKey of a storyGroupNode)
+  function getStoryGroupForKey(key: string): string | undefined {
+    return issueStoryGroupId.get(key) ?? storyGroupIds.get(key);
+  }
+
   // ── 4c. Build edges ──────────────────────────────────────────────────────
+  // Cross-epic links are aggregated into bundle edges (one per directed epic
+  // pair) rather than drawn as individual dashed lines.  Within-epic edges are
+  // drawn normally.
+  //
+  // We also track per-raw-issue-key cross-epic out/in counts so we can show
+  // ↗/↙ badges on node cards.
+
+  // Map: `${srcEpicGroupId}--${tgtEpicGroupId}` → accumulated bundle data
+  interface BundleAccum {
+    srcEpicId: string;
+    tgtEpicId: string;
+    links: CrossEpicLink[];
+    typeCounts: Map<string, number>; // typeName → count, for label generation
+  }
+  const bundleMap = new Map<string, BundleAccum>();
+
+  // Per raw issue key: how many cross-epic outgoing / incoming edges
+  const crossEpicOutCount = new Map<string, number>();
+  const crossEpicInCount  = new Map<string, number>();
+
+  // Map: `${srcStoryGroupId}--${tgtStoryGroupId}` → accumulated cross-story bundle data
+  interface StoryBundleAccum {
+    srcStoryId: string;
+    tgtStoryId: string;
+    links: CrossStoryLink[];
+    typeCounts: Map<string, number>;
+  }
+  const storyBundleMap = new Map<string, StoryBundleAccum>();
+
+  // Per raw issue key: how many cross-story outgoing / incoming edges
+  const crossStoryOutCount = new Map<string, number>();
+  const crossStoryInCount  = new Map<string, number>();
+
+  function addCrossEpicLink(
+    srcRaw: string, tgtRaw: string,
+    srcEpicId: string, tgtEpicId: string,
+    typeName: string, color: string,
+  ) {
+    const bundleKey = `${srcEpicId}--${tgtEpicId}`;
+    if (!bundleMap.has(bundleKey)) {
+      bundleMap.set(bundleKey, { srcEpicId, tgtEpicId, links: [], typeCounts: new Map() });
+    }
+    const bundle = bundleMap.get(bundleKey)!;
+    // Deduplicate individual links — use canonical normalised type name so that
+    // "blocks" (outward) and "is blocked by" (inward) for the same pair don't
+    // produce two entries. We normalise to the outward/canonical form here.
+    const linkKey = `${srcRaw}--${tgtRaw}`;
+    if (!bundle.links.find(l => `${l.sourceKey}--${l.targetKey}` === linkKey)) {
+      bundle.links.push({ sourceKey: srcRaw, targetKey: tgtRaw, typeName, color });
+      bundle.typeCounts.set(typeName, (bundle.typeCounts.get(typeName) ?? 0) + 1);
+      // Only count after confirmed add — prevents double-counting from outward+inward iterations
+      crossEpicOutCount.set(srcRaw, (crossEpicOutCount.get(srcRaw) ?? 0) + 1);
+      crossEpicInCount.set(tgtRaw,  (crossEpicInCount.get(tgtRaw)  ?? 0) + 1);
+    }
+  }
+
+  function addCrossStoryLink(
+    srcRaw: string, tgtRaw: string,
+    srcStoryId: string, tgtStoryId: string,
+    typeName: string, color: string,
+  ) {
+    const bundleKey = `${srcStoryId}--${tgtStoryId}`;
+    if (!storyBundleMap.has(bundleKey)) {
+      storyBundleMap.set(bundleKey, { srcStoryId, tgtStoryId, links: [], typeCounts: new Map() });
+    }
+    const bundle = storyBundleMap.get(bundleKey)!;
+    const linkKey = `${srcRaw}--${tgtRaw}`;
+    if (!bundle.links.find(l => `${l.sourceKey}--${l.targetKey}` === linkKey)) {
+      bundle.links.push({ sourceKey: srcRaw, targetKey: tgtRaw, typeName, color });
+      bundle.typeCounts.set(typeName, (bundle.typeCounts.get(typeName) ?? 0) + 1);
+      crossStoryOutCount.set(srcRaw, (crossStoryOutCount.get(srcRaw) ?? 0) + 1);
+      crossStoryInCount.set(tgtRaw,  (crossStoryInCount.get(tgtRaw)  ?? 0) + 1);
+    }
+  }
+
   for (const issue of issues) {
     for (const link of issue.fields.issuelinks ?? []) {
       if (link.outwardIssue && issueMap.has(link.outwardIssue.key)) {
@@ -445,28 +696,49 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
         const src = resolveEdgeEndpoint(issue.key);
         const tgt = resolveEdgeEndpoint(link.outwardIssue.key);
         if (src === tgt) continue;
-        const edgeId = `${src}-${tgt}-${getEdgeLabel(typeName)}`;
-        if (!edgeSet.has(edgeId)) {
-          edgeSet.add(edgeId);
-          const color = getEdgeColor(typeName);
-          const isCrossEpic = epicGroupingEnabled &&
-            getEpicGroupForKey(issue.key) !== getEpicGroupForKey(link.outwardIssue.key);
-          edges.push({
-            id: edgeId,
-            source: src,
-            target: tgt,
-            label: getEdgeLabel(typeName),
-            type: "elkEdge",
-            animated: typeName.toLowerCase() === "blocks",
-            style: {
-              stroke: color,
-              strokeWidth: isCrossEpic ? 2.5 : 2,
-              strokeDasharray: isCrossEpic ? "6 3" : undefined,
-            },
-            labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
-            labelBgStyle: { fill: "white", fillOpacity: 0.85 },
-            data: { color, bendPoints: [], isCrossEpic },
-          });
+        const isCrossEpic = epicGroupingEnabled &&
+          getEpicGroupForKey(issue.key) !== getEpicGroupForKey(link.outwardIssue.key);
+
+        if (isCrossEpic) {
+          const srcEpicId = getEpicGroupForKey(issue.key) ?? src;
+          const tgtEpicId = getEpicGroupForKey(link.outwardIssue.key) ?? tgt;
+          const edgeColor = typeName.toLowerCase() === "blocks"
+            ? getBlockingEdgeColor(issue.fields.status.statusCategory.key)
+            : getEdgeColor(typeName);
+          addCrossEpicLink(issue.key, link.outwardIssue.key, srcEpicId, tgtEpicId, typeName, edgeColor);
+        } else {
+          const srcStoryId = getStoryGroupForKey(issue.key);
+          const tgtStoryId = getStoryGroupForKey(link.outwardIssue.key);
+          const isCrossStory = srcStoryId !== undefined && tgtStoryId !== undefined && srcStoryId !== tgtStoryId;
+          if (isCrossStory) {
+            const edgeColor = typeName.toLowerCase() === "blocks"
+              ? getBlockingEdgeColor(issue.fields.status.statusCategory.key)
+              : getEdgeColor(typeName);
+            addCrossStoryLink(issue.key, link.outwardIssue.key, srcStoryId!, tgtStoryId!, typeName, edgeColor);
+          } else {
+            const edgeId = `${src}-${tgt}-${getEdgeLabel(typeName)}`;
+            if (!edgeSet.has(edgeId)) {
+              edgeSet.add(edgeId);
+              const isBlocking = typeName.toLowerCase() === "blocks";
+              const blockerDone = isBlocking && issue.fields.status.statusCategory.key === "done";
+              const color = isBlocking
+                ? getBlockingEdgeColor(issue.fields.status.statusCategory.key)
+                : getEdgeColor(typeName);
+              const animated = isBlocking && isBlockingEdgeAnimated(issue.fields.status.statusCategory.key);
+              edges.push({
+                id: edgeId,
+                source: src,
+                target: tgt,
+                label: blockerDone ? undefined : getEdgeLabel(typeName),
+                type: "elkEdge",
+                animated,
+                style: { stroke: color, strokeWidth: 2 },
+                labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
+                labelBgStyle: { fill: "white", fillOpacity: 0.85 },
+                data: { color, bendPoints: [] },
+              });
+            }
+          }
         }
       }
 
@@ -484,28 +756,53 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
         const source = resolveEdgeEndpoint(rawBlocker);
         const target = resolveEdgeEndpoint(rawBlocked);
         if (source === target) continue;
-        const edgeId = `${source}-${target}-${getEdgeLabel(typeName)}`;
-        if (!edgeSet.has(edgeId)) {
-          edgeSet.add(edgeId);
-          const color = getEdgeColor(normalised);
-          const isCrossEpic = epicGroupingEnabled &&
-            getEpicGroupForKey(rawBlocker) !== getEpicGroupForKey(rawBlocked);
-          edges.push({
-            id: edgeId,
-            source,
-            target,
-            label: getEdgeLabel(typeName),
-            type: "elkEdge",
-            animated: normalised.includes("block"),
-            style: {
-              stroke: color,
-              strokeWidth: isCrossEpic ? 2.5 : 2,
-              strokeDasharray: isCrossEpic ? "6 3" : undefined,
-            },
-            labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
-            labelBgStyle: { fill: "white", fillOpacity: 0.85 },
-            data: { color, bendPoints: [], isCrossEpic },
-          });
+        const isCrossEpic = epicGroupingEnabled &&
+          getEpicGroupForKey(rawBlocker) !== getEpicGroupForKey(rawBlocked);
+
+        if (isCrossEpic) {
+          const srcEpicId = getEpicGroupForKey(rawBlocker) ?? source;
+          const tgtEpicId = getEpicGroupForKey(rawBlocked) ?? target;
+          // Use the outward type name so the stored label is canonical (e.g. "blocks")
+          const blockerCat = issueMap.get(rawBlocker)?.fields.status.statusCategory.key ?? "new";
+          const edgeColor = normalised.includes("block")
+            ? getBlockingEdgeColor(blockerCat)
+            : getEdgeColor(link.type.outward.toLowerCase());
+          addCrossEpicLink(rawBlocker, rawBlocked, srcEpicId, tgtEpicId, link.type.outward, edgeColor);
+        } else {
+          const srcStoryId = getStoryGroupForKey(rawBlocker);
+          const tgtStoryId = getStoryGroupForKey(rawBlocked);
+          const isCrossStory = srcStoryId !== undefined && tgtStoryId !== undefined && srcStoryId !== tgtStoryId;
+          if (isCrossStory) {
+            const blockerCat = issueMap.get(rawBlocker)?.fields.status.statusCategory.key ?? "new";
+            const edgeColor = normalised.includes("block")
+              ? getBlockingEdgeColor(blockerCat)
+              : getEdgeColor(link.type.outward.toLowerCase());
+            addCrossStoryLink(rawBlocker, rawBlocked, srcStoryId!, tgtStoryId!, link.type.outward, edgeColor);
+          } else {
+            const edgeId = `${source}-${target}-${getEdgeLabel(typeName)}`;
+            if (!edgeSet.has(edgeId)) {
+              edgeSet.add(edgeId);
+              const isBlocking = normalised.includes("block");
+              const blockerCat = issueMap.get(rawBlocker)?.fields.status.statusCategory.key ?? "new";
+              const blockerDone = isBlocking && blockerCat === "done";
+              const color = isBlocking
+                ? getBlockingEdgeColor(blockerCat)
+                : getEdgeColor(normalised);
+              const animated = isBlocking && isBlockingEdgeAnimated(blockerCat);
+              edges.push({
+                id: edgeId,
+                source,
+                target,
+                label: blockerDone ? undefined : getEdgeLabel(typeName),
+                type: "elkEdge",
+                animated,
+                style: { stroke: color, strokeWidth: 2 },
+                labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
+                labelBgStyle: { fill: "white", fillOpacity: 0.85 },
+                data: { color, bendPoints: [] },
+              });
+            }
+          }
         }
       }
 
@@ -514,5 +811,105 @@ export function buildGraphStructure(issues: JiraIssue[]): GraphStructure {
     }
   }
 
-  return { nodes, edges, groupIds, issueGroupId, childKeys, issueEpicGroupId, epicGroupIds };
+  // ── 4d. Emit bundle edges for cross-epic links ────────────────────────────
+  for (const bundle of bundleMap.values()) {
+    // Build a human-readable label: dominant type name + total count.
+    // e.g. "3 blocks" or "2 blocks, 1 relates to"
+    let label = "";
+    const sorted = [...bundle.typeCounts.entries()].sort((a, b) => b[1] - a[1]);
+    if (sorted.length === 1) {
+      label = `${sorted[0][1]} ${getEdgeLabel(sorted[0][0])}`;
+    } else {
+      label = sorted.map(([t, n]) => `${n} ${getEdgeLabel(t)}`).join(", ");
+    }
+    // Dominant color = color of most common type.
+    // If ALL individual blocking links in the bundle are resolved (grey), use grey;
+    // otherwise use the computed dominant color.
+    const dominantTypeColor = getEdgeColor(sorted[0][0]);
+    const allResolved =
+      bundle.links.length > 0 &&
+      bundle.links.every((l) => l.color === EDGE_COLORS.default);
+    const dominantColor = allResolved ? EDGE_COLORS.default : dominantTypeColor;
+    const bundleEdgeId = `bundle__${bundle.srcEpicId}--${bundle.tgtEpicId}`;
+    const bundleData: CrossEpicBundleEdgeData = {
+      individualEdges: bundle.links,
+      bendPoints: [],
+      color: dominantColor,
+      label: allResolved ? "" : label,
+    };
+    edges.push({
+      id: bundleEdgeId,
+      source: bundle.srcEpicId,
+      target: bundle.tgtEpicId,
+      type: "crossEpicBundle",
+      animated: false,
+      style: { stroke: dominantColor, strokeWidth: 3 },
+      data: bundleData,
+    });
+  }
+
+  // ── 4e. Back-patch cross-epic badge counts onto issueNode data ────────────
+  if (crossEpicOutCount.size > 0 || crossEpicInCount.size > 0) {
+    for (const node of nodes) {
+      if (node.type !== "issueNode") continue;
+      const out = crossEpicOutCount.get(node.id);
+      const inc = crossEpicInCount.get(node.id);
+      if (out || inc) {
+        // IssueNodeData has an index signature so this cast is safe
+        const data = node.data as IssueNodeData;
+        if (out) data.crossEpicOut = out;
+        if (inc) data.crossEpicIn  = inc;
+      }
+    }
+  }
+
+  // ── 4d′. Emit bundle edges for cross-story links ──────────────────────────
+  for (const bundle of storyBundleMap.values()) {
+    let label = "";
+    const sorted = [...bundle.typeCounts.entries()].sort((a, b) => b[1] - a[1]);
+    if (sorted.length === 1) {
+      label = `${sorted[0][1]} ${getEdgeLabel(sorted[0][0])}`;
+    } else {
+      label = sorted.map(([t, n]) => `${n} ${getEdgeLabel(t)}`).join(", ");
+    }
+    // Same resolved-bundle logic as cross-epic bundles above.
+    const dominantTypeColor = getEdgeColor(sorted[0][0]);
+    const allResolved =
+      bundle.links.length > 0 &&
+      bundle.links.every((l) => l.color === EDGE_COLORS.default);
+    const dominantColor = allResolved ? EDGE_COLORS.default : dominantTypeColor;
+    const bundleEdgeId = `story_bundle__${bundle.srcStoryId}--${bundle.tgtStoryId}`;
+    const bundleData: CrossStoryBundleEdgeData = {
+      individualEdges: bundle.links,
+      bendPoints: [],
+      color: dominantColor,
+      label: allResolved ? "" : label,
+    };
+    edges.push({
+      id: bundleEdgeId,
+      source: bundle.srcStoryId,
+      target: bundle.tgtStoryId,
+      type: "crossStoryBundle",
+      animated: false,
+      style: { stroke: dominantColor, strokeWidth: 2.5 },
+      data: bundleData,
+    });
+  }
+
+  // ── 4e′. Back-patch cross-story badge counts onto individual issueNode data ─
+  // Mirrors Phase 4e exactly: iterate issueNode nodes and patch per raw issue key.
+  if (crossStoryOutCount.size > 0 || crossStoryInCount.size > 0) {
+    for (const node of nodes) {
+      if (node.type !== "issueNode") continue;
+      const out = crossStoryOutCount.get(node.id);
+      const inc = crossStoryInCount.get(node.id);
+      if (out || inc) {
+        const data = node.data as IssueNodeData;
+        if (out) data.crossStoryOut = out;
+        if (inc) data.crossStoryIn  = inc;
+      }
+    }
+  }
+
+  return { nodes, edges, groupIds, issueGroupId, childKeys, issueEpicGroupId, epicGroupIds, storyGroupIds, issueStoryGroupId };
 }

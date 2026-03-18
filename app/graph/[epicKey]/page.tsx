@@ -47,6 +47,7 @@ export default function GraphPage() {
               issues={issues}
               latestIssues={latestIssues}
               onNodeSelect={handleNodeSelect}
+              selectedKey={selectedKey}
             />
           )}
         </div>
