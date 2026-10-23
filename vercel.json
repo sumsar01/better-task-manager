@@ -1,4 +1,6 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "bunVersion": "1.4.x",
   "regions": ["iad1"],
   "functions": {
     "app/api/jira/issues/project/route.ts": {

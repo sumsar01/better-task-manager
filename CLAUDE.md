@@ -61,12 +61,12 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
+Bun is the package manager — never use npm/yarn/pnpm. See AGENTS.md for the full command list.
 
 ```bash
-# Example:
-# npm install
-# npm test
+bun install
+bun run build
+bun run lint
 ```
 
 ## Architecture Overview
