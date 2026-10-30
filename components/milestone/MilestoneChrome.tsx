@@ -183,7 +183,7 @@ const SHORTCUTS: Array<{ group: string; keys: Array<[string, string]> }> = [
   {
     group: "Views",
     keys: [
-      ["1 – 5", "Critical path, Blockers, Team load, Increments, Ready & warnings"],
+      ["1 – 6", "Critical path, Blockers, Team load, Increments, Ready & warnings, Team lanes"],
       ["⌥⌘1 – ⌥⌘9", "Go to milestone 1–9"],
       ["⌥⌘0", "Program overview"],
       ["⌘R", "Refresh from Jira"],

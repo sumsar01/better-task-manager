@@ -8,6 +8,7 @@ import MilestoneInspector from "@/components/milestone/MilestoneInspector";
 import { ErrorState, MilestoneSkeleton, ShortcutsSheet, ToolButton, Toolbar } from "@/components/milestone/MilestoneChrome";
 import { MilestoneProvider } from "@/components/milestone/MilestoneContext";
 import { BlockersTab, IncrementsTab, NoMatches, ReadyTab } from "@/components/milestone/MilestoneTabs";
+import { TeamLanesTab } from "@/components/milestone/TeamLanes";
 import { TeamLoadTab } from "@/components/milestone/TeamLoad";
 import { FilterBar, useInspector, useWorkspaceKeys } from "@/components/milestone/MilestoneWorkspace";
 import { KeyChip, ProgressRing, Segmented, StatTile, percentDone } from "@/components/milestone/MilestoneBits";
@@ -25,6 +26,7 @@ const TABS: Array<{ value: MilestoneTab; label: React.ReactNode }> = [
   { value: "teams", label: <><span className="hidden xl:inline">Team load</span><span className="xl:hidden">Load</span></> },
   { value: "increments", label: "Increments" },
   { value: "ready", label: <><span className="hidden xl:inline">Ready & warnings</span><span className="xl:hidden">Ready</span></> },
+  { value: "lanes", label: <><span className="hidden xl:inline">Team lanes</span><span className="xl:hidden">Lanes</span></> },
 ];
 
 const TAB_TITLE: Record<MilestoneTab, string> = {
@@ -33,6 +35,7 @@ const TAB_TITLE: Record<MilestoneTab, string> = {
   teams: "Team load",
   increments: "Increments",
   ready: "Ready & warnings",
+  lanes: "Team lanes",
 };
 
 const STATE_STYLE = {
@@ -181,7 +184,7 @@ function MilestoneView() {
   // Browsers keep ⌘1–9 for their tabs, so the bare digits switch views too.
   const extra = useCallback(
     (e: KeyboardEvent, typing: boolean) => {
-      const digit = /^Digit[1-5]$/.test(e.code) ? Number(e.code.slice(5)) : 0;
+      const digit = /^Digit[1-6]$/.test(e.code) ? Number(e.code.slice(5)) : 0;
       if (digit && !e.altKey && !e.shiftKey && (e.metaKey || e.ctrlKey || !typing)) {
         e.preventDefault();
         setView({ tab: MILESTONE_TABS[digit - 1] });
@@ -265,6 +268,7 @@ function MilestoneView() {
                 {view.tab === "teams" && <TeamLoadTab matches={matches} empty={<NoMatches query={view.query} onClear={onClearQuery} />} />}
                 {view.tab === "increments" && <IncrementsTab query={view.query} onClearQuery={onClearQuery} />}
                 {view.tab === "ready" && <ReadyTab query={view.query} matches={matches} />}
+                {view.tab === "lanes" && <TeamLanesTab matches={matches} showDone={view.showDone} empty={<NoMatches query={view.query} onClear={onClearQuery} />} />}
               </div>
             )}
             {inspector.open && view.item && (

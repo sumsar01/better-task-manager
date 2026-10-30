@@ -9,7 +9,7 @@ import type { Dependency, MilestoneDetail, WorkItem } from "@/lib/milestoneTypes
 
 // ── URL state ───────────────────────────────────────────────────────────────
 
-export const MILESTONE_TABS = ["path", "blockers", "teams", "increments", "ready"] as const;
+export const MILESTONE_TABS = ["path", "blockers", "teams", "increments", "ready", "lanes"] as const;
 
 export type MilestoneTab = (typeof MILESTONE_TABS)[number];
 
