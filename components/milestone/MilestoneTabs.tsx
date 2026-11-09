@@ -31,7 +31,7 @@ import type { BlockerEpic, Increment, WorkItem } from "@/lib/milestoneTypes";
 import { cn } from "@/lib/utils";
 import { Card, EmptyState, ProgressBar, SectionHeader, StatusPill } from "./MilestoneBits";
 import { useMilestone } from "./MilestoneContext";
-import { CriticalBadge, IssueChip, Team, WarningRow, WorkItemRow } from "./MilestoneRows";
+import { CriticalBadge, groupWarningsByKind, IssueChip, Team, WarningRow, WorkItemRow } from "./MilestoneRows";
 import { CriticalChainPanel } from "./InsightPanels";
 
 // The milestone's list tabs, after the mac app's BlockerEpicsView,
@@ -347,7 +347,9 @@ export function ReadyTab({ query, matches }: { query: string; matches: Set<strin
           </>
         )}
       </Card>
-      <Card className="flex min-w-0 flex-col gap-2.5">
+      {/* Stacked below 1100px the ready list runs to dozens of rows, so the few
+          warnings move above it rather than a long scroll below. */}
+      <Card className={cn("flex min-w-0 flex-col gap-2.5", warnings.length > 0 && "max-[1099px]:order-first")}>
         <SectionHeader title="Warnings" icon={<TriangleAlert size={15} />} count={warnings.length} />
         {detail.warnings.length === 0 ? (
           <p className="flex items-center gap-1.5 py-1 text-[13px] font-medium text-[var(--ms-ready-text)]">
@@ -357,8 +359,8 @@ export function ReadyTab({ query, matches }: { query: string; matches: Set<strin
           <p className="py-2 text-[13px] text-[var(--ms-label-3)]">No matches.</p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {warnings.map((w, i) => (
-              <WarningRow key={`${w.kind}-${i}`} warning={w} />
+            {groupWarningsByKind(warnings).map((group) => (
+              <WarningRow key={group[0].kind} warnings={group} />
             ))}
           </ul>
         )}

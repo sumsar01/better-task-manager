@@ -16,6 +16,7 @@ import {
   UserRoundX,
   UserX,
 } from "lucide-react";
+import { useState } from "react";
 import { epicSpan, isSevere, scheduleSummary, sortedKeys, warningTitle } from "@/lib/milestoneInsights";
 import type { MilestoneWarning, StatusRef, TeamEpic, WorkItem } from "@/lib/milestoneTypes";
 import { cn } from "@/lib/utils";
@@ -220,13 +221,34 @@ const WARNING_ICON: Record<string, React.ComponentType<{ size?: number; classNam
 };
 
 /**
- * A warning by kind: symbol, title and message, tinted red when it makes the
- * plan wrong and orange when it's hygiene. Keys are sorted so the same
- * warning always reads the same way.
+ * Warnings of one kind, in first-seen order. Three "Unscheduled" rows saying the
+ * same thing about three keys pushed the program roadmap below the fold; one row
+ * per kind lists every message and every key.
  */
-export function WarningRow({ warning, chip }: { warning: MilestoneWarning; chip?: (key: string) => React.ReactNode }) {
-  const Icon = WARNING_ICON[warning.kind] ?? TriangleAlert;
-  const severe = isSevere(warning.kind);
+export function groupWarningsByKind(warnings: MilestoneWarning[]): MilestoneWarning[][] {
+  const groups = new Map<string, MilestoneWarning[]>();
+  for (const w of warnings) {
+    const group = groups.get(w.kind);
+    if (group) group.push(w);
+    else groups.set(w.kind, [w]);
+  }
+  return [...groups.values()];
+}
+
+const COLLAPSED_MESSAGES = 4;
+
+/**
+ * Warnings of one kind: symbol, title and messages, tinted red when they make the
+ * plan wrong and orange when it's hygiene. Keys are sorted so the same warning
+ * always reads the same way.
+ */
+export function WarningRow({ warnings, chip }: { warnings: MilestoneWarning[]; chip?: (key: string) => React.ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+  const kind = warnings[0].kind;
+  const Icon = WARNING_ICON[kind] ?? TriangleAlert;
+  const severe = isSevere(kind);
+  const shown = expanded ? warnings : warnings.slice(0, COLLAPSED_MESSAGES);
+  const keys = sortedKeys([...new Set(warnings.flatMap((w) => w.keys))]);
   return (
     <li
       className={cn("flex gap-3 rounded-xl px-3 py-2.5", severe ? "bg-[color-mix(in_srgb,var(--ms-critical)_7%,transparent)]" : "bg-[color-mix(in_srgb,var(--ms-warn)_8%,transparent)]")}
@@ -234,14 +256,28 @@ export function WarningRow({ warning, chip }: { warning: MilestoneWarning; chip?
       <Icon size={18} aria-hidden={true} className={cn("mt-0.5 shrink-0", severe ? "text-[var(--ms-critical)]" : "text-[var(--ms-warn)]")} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <h3 className="text-[13px] font-semibold text-[var(--ms-label)]">{warningTitle(warning.kind)}</h3>
+          <h3 className="text-[13px] font-semibold text-[var(--ms-label)]">{warningTitle(kind)}</h3>
+          {warnings.length > 1 && <span className="text-[11.5px] font-semibold tabular-nums text-[var(--ms-label-3)]">{warnings.length}</span>}
           <span className={cn("text-[10.5px] font-semibold", severe ? "text-[var(--ms-critical-text)]" : "text-[var(--ms-warn-text)]")}>
             {severe ? "Needs attention" : "Hygiene"}
           </span>
         </div>
-        <p className="mt-0.5 text-[12.5px] leading-snug text-[var(--ms-label-2)]">{warning.message}</p>
-        {warning.keys.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-1">{sortedKeys(warning.keys).map((k) => <span key={k}>{chip ? chip(k) : <IssueChip issueKey={k} />}</span>)}</div>
+        {shown.map((w, i) => (
+          <p key={i} className="mt-0.5 text-[12.5px] leading-snug text-[var(--ms-label-2)]">
+            {w.message}
+          </p>
+        ))}
+        {warnings.length > COLLAPSED_MESSAGES && (
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            className="mt-0.5 text-[12.5px] font-medium text-[var(--ms-accent-text)] hover:underline"
+          >
+            {expanded ? "Show fewer" : `Show all ${warnings.length}`}
+          </button>
+        )}
+        {keys.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">{keys.map((k) => <span key={k}>{chip ? chip(k) : <IssueChip issueKey={k} />}</span>)}</div>
         )}
       </div>
     </li>

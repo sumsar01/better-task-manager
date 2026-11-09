@@ -5,7 +5,7 @@ export const TEAM_PALETTE = [
   "#0a84ff", // blue
   "#5e5ce6", // indigo
   "#00c7be", // mint
-  "#ff375f", // pink
+  "#e86fb5", // soft magenta: system pink read as "critical" red next to the flame
   "#ac8e68", // brown
   "#32ade6", // cyan
   "#30b0c7", // teal

@@ -20,7 +20,7 @@ import type { ReleaseState } from "@/lib/milestoneInsights";
 import type { IncrementSummary, Progress, ProgramOverview, ProgramRelease } from "@/lib/milestoneTypes";
 import { cn } from "@/lib/utils";
 import { Card, EmptyState, KeyChip, ProgressBar, SectionHeader, StatTile, StatusDot, StatusPill } from "./MilestoneBits";
-import { WarningRow } from "./MilestoneRows";
+import { groupWarningsByKind, WarningRow } from "./MilestoneRows";
 
 // The delivery program as a roadmap, after the mac app's ProgramOverviewView:
 // each milestone is a stage on a spine, in release order, with every
@@ -301,8 +301,8 @@ export default function ProgramRoadmap({
         <Card className="flex flex-col gap-2.5">
           <SectionHeader title="Program warnings" icon={<TriangleAlert size={15} />} count={overview.warnings.length} />
           <ul className="flex flex-col gap-2">
-            {overview.warnings.map((w, i) => (
-              <WarningRow key={`${w.kind}-${i}`} warning={w} chip={(k) => <KeyChip issueKey={k} />} />
+            {groupWarningsByKind(overview.warnings).map((group) => (
+              <WarningRow key={group[0].kind} warnings={group} chip={(k) => <KeyChip issueKey={k} />} />
             ))}
           </ul>
         </Card>
