@@ -3,13 +3,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CloudAlert, CloudCheck, Flame, Kanban, Map as MapIcon, TriangleAlert, UsersRound } from "lucide-react";
+import { CloudAlert, CloudCheck, Flame, Inbox, Kanban, Map as MapIcon, TriangleAlert, UsersRound } from "lucide-react";
 import { cachedJson, usePolledJson } from "@/hooks/usePolledJson";
 import { useJiraBaseUrl } from "@/hooks/useJiraBaseUrl";
 import { plural, releaseState, releaseStateLabel } from "@/lib/milestoneInsights";
 import type { MilestoneDetail, ProgramOverview, ProgramRelease } from "@/lib/milestoneTypes";
 import { cn } from "@/lib/utils";
 import { ProgressRing, percentDone } from "./MilestoneBits";
+import InboxCount from "./InboxCount";
 import { milestoneTeamColors } from "./MilestoneContext";
 
 // ── Program shell ───────────────────────────────────────────────────────────
@@ -28,6 +29,7 @@ interface ProgramContextValue {
   linkSuffix: string;
   href: {
     program: string;
+    inbox: string;
     milestone: (id: string) => string;
     team: (id: string, team: string) => string;
   };
@@ -132,6 +134,7 @@ export default function ProgramShell({ children }: { children: React.ReactNode }
   const href = useMemo(
     () => ({
       program: `${base}${linkSuffix}`,
+      inbox: `${base}/inbox${linkSuffix}`,
       milestone: (id: string) => `${base}/${encodeURIComponent(id)}${linkSuffix}`,
       team: (id: string, team: string) => `${base}/${encodeURIComponent(id)}/team/${encodeURIComponent(team)}${linkSuffix}`,
     }),
@@ -358,6 +361,7 @@ function relative(then: number, now: number): string {
 
 function Sidebar({ teamName, fixture }: { teamName: string | null; fixture: string | null }) {
   const { program, milestone, versionId, href, projectKey } = useProgram();
+  const pathname = usePathname();
   const overview = program.data;
   const detail = milestone.data;
   const colors = useMemo(() => (detail ? milestoneTeamColors(detail) : new Map<string, string>()), [detail]);
@@ -365,7 +369,7 @@ function Sidebar({ teamName, fixture }: { teamName: string | null; fixture: stri
     <nav aria-label="Delivery program" className="ms-sidebar flex h-full w-[264px] shrink-0 flex-col border-r border-[var(--ms-sep)]">
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3 pt-3">
         <ul>
-          <SidebarLink href={href.program} selected={!versionId}>
+          <SidebarLink href={href.program} selected={!versionId && !pathname.endsWith("/inbox")}>
             <MapIcon size={16} className="shrink-0 text-[var(--ms-accent)]" aria-hidden="true" />
             <span className="min-w-0 flex-1 py-0.5">
               <span className="block truncate leading-tight">Program overview</span>
@@ -373,6 +377,14 @@ function Sidebar({ teamName, fixture }: { teamName: string | null; fixture: stri
             </span>
           </SidebarLink>
         </ul>
+
+        <SidebarSection title="You">
+          <SidebarLink href={href.inbox} selected={pathname.endsWith("/inbox")}>
+            <Inbox size={15} className="shrink-0 text-[var(--ms-label-2)]" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">Inbox</span>
+            <InboxCount projectKey={projectKey} fixture={fixture} />
+          </SidebarLink>
+        </SidebarSection>
 
         <SidebarSection title="Milestones">
           {overview ? (
