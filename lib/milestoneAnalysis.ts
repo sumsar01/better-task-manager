@@ -25,6 +25,7 @@ export interface EpicInput {
   team: string;
   projectKey: string;
   assignee: string | null;
+  assigneeId?: string | null;
   incrementKeys: string[];
   /** Epic keys this epic declares it blocks (epic-level "blocks" links). */
   blocks: string[];
@@ -38,6 +39,7 @@ export interface ItemInput {
   type: string;
   status: StatusRef;
   assignee: string | null;
+  assigneeId?: string | null;
   epicKey: string | null;
   team: string;
   points: number | null;
@@ -188,6 +190,7 @@ export function analyzeMilestone(input: AnalysisInput): AnalysisResult {
       type: "Epic",
       status: epic.status,
       assignee: epic.assignee,
+      assigneeId: epic.assigneeId,
       epicKey: epic.key,
       team: epic.team,
       points: null,
@@ -372,6 +375,7 @@ export function analyzeMilestone(input: AnalysisInput): AnalysisResult {
     type: i.type,
     status: i.status,
     assignee: i.assignee,
+    assigneeId: i.assigneeId,
     epicKey: i.epicKey,
     team: i.team,
     incrementKey: i.external ? null : incrementOfEpic(i.epicKey),
@@ -429,6 +433,7 @@ export function analyzeMilestone(input: AnalysisInput): AnalysisResult {
       team: epic.team,
       projectKey: epic.projectKey,
       assignee: epic.assignee,
+      assigneeId: epic.assigneeId,
       incrementKeys: epic.incrementKeys,
       itemKeys: own.filter((i) => !placeholders.has(i.key)).map((i) => i.key),
       progress: progressOf(own.filter((i) => !placeholders.has(i.key)).map((i) => i.status)),
