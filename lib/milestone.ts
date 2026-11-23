@@ -26,7 +26,7 @@ const TEAM_FIELD = "customfield_10001";
 const POINT_FIELDS = ["customfield_10016", "customfield_10067"];
 
 /** Jira caps JQL length; chunk `key in (...)` / `parent in (...)` lists. */
-const JQL_CHUNK = 80;
+export const JQL_CHUNK = 80;
 /** Epics per `parent in (...)` query — small batches run in parallel instead of paging sequentially. */
 const PARENT_BATCH = 4;
 
@@ -149,7 +149,7 @@ export function compareIssueKeys(a: string, b: string): number {
   return pa.localeCompare(pb) || Number(na) - Number(nb);
 }
 
-function chunks<T>(list: T[], size: number): T[][] {
+export function chunks<T>(list: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
   return out;
