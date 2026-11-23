@@ -3,10 +3,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CloudAlert, CloudCheck, Flame, Kanban, Map as MapIcon, TriangleAlert, UsersRound } from "lucide-react";
+import { CloudAlert, CloudCheck, Flame, Kanban, ListChecks, Map as MapIcon, TriangleAlert, UsersRound } from "lucide-react";
 import { cachedJson, usePolledJson } from "@/hooks/usePolledJson";
 import { useJiraBaseUrl } from "@/hooks/useJiraBaseUrl";
+import { useMyWork } from "@/hooks/useMyWork";
 import { plural, releaseState, releaseStateLabel } from "@/lib/milestoneInsights";
+import { milestoneApiUrl } from "@/lib/milestoneView";
+import { readyMineCount } from "@/lib/myWork";
 import type { MilestoneDetail, ProgramOverview, ProgramRelease } from "@/lib/milestoneTypes";
 import { cn } from "@/lib/utils";
 import { ProgressRing, percentDone } from "./MilestoneBits";
@@ -111,9 +114,7 @@ function useStoredFlag(key: string): [boolean, (on: boolean) => void] {
   return [value, set];
 }
 
-export function milestoneApiUrl(projectKey: string, versionId: string, fixture: string | null): string {
-  return `/api/jira/milestones/${encodeURIComponent(versionId)}?project=${encodeURIComponent(projectKey)}${fixture ? `&fixture=${encodeURIComponent(fixture)}` : ""}`;
-}
+export { milestoneApiUrl };
 
 export default function ProgramShell({ children }: { children: React.ReactNode }) {
   const params = useParams<{ projectKey: string; versionId?: string; team?: string }>();
@@ -310,6 +311,23 @@ function MilestoneRow({ release, selected, href, fixture, projectKey }: { releas
   );
 }
 
+function MyWorkLink({ fixture, selected }: { fixture: string | null; selected: boolean }) {
+  const { program, projectKey, linkSuffix } = useProgram();
+  const { entries, me } = useMyWork(projectKey, fixture, program.data);
+  const ready = readyMineCount(entries, me);
+  return (
+    <SidebarLink href={`/program/${encodeURIComponent(projectKey)}/me${linkSuffix}`} selected={selected} title="What to do next, across the open milestones">
+      <ListChecks size={16} className="shrink-0 text-[var(--ms-accent)]" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate">My work</span>
+      {ready > 0 && (
+        <span className="shrink-0 rounded-full bg-[var(--ms-fill-2)] px-1.5 text-[11px] font-medium tabular-nums text-[var(--ms-label-2)]" aria-label={`${ready} ready for you`}>
+          {ready}
+        </span>
+      )}
+    </SidebarLink>
+  );
+}
+
 function RefreshStatus() {
   const { refreshing, lastUpdated, backgroundError } = useProgram();
   const now = useNow(20_000);
@@ -361,11 +379,12 @@ function Sidebar({ teamName, fixture }: { teamName: string | null; fixture: stri
   const overview = program.data;
   const detail = milestone.data;
   const colors = useMemo(() => (detail ? milestoneTeamColors(detail) : new Map<string, string>()), [detail]);
+  const onMyWork = usePathname().endsWith("/me");
   return (
     <nav aria-label="Delivery program" className="ms-sidebar flex h-full w-[264px] shrink-0 flex-col border-r border-[var(--ms-sep)]">
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3 pt-3">
         <ul>
-          <SidebarLink href={href.program} selected={!versionId}>
+          <SidebarLink href={href.program} selected={!versionId && !onMyWork}>
             <MapIcon size={16} className="shrink-0 text-[var(--ms-accent)]" aria-hidden="true" />
             <span className="min-w-0 flex-1 py-0.5">
               <span className="block truncate leading-tight">Program overview</span>
@@ -373,6 +392,10 @@ function Sidebar({ teamName, fixture }: { teamName: string | null; fixture: stri
             </span>
           </SidebarLink>
         </ul>
+
+        <SidebarSection title="You">
+          <MyWorkLink fixture={fixture} selected={onMyWork} />
+        </SidebarSection>
 
         <SidebarSection title="Milestones">
           {overview ? (

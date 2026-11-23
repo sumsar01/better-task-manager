@@ -410,6 +410,7 @@ export async function getMilestoneDetail(
     team: teamName(issue) ?? issue.fields.project?.name ?? issue.key.split("-")[0],
     projectKey: issue.fields.project?.key ?? issue.key.split("-")[0],
     assignee: issue.fields.assignee?.displayName ?? null,
+    assigneeId: issue.fields.assignee?.accountId ?? null,
     incrementKeys: incrementsOfEpic.get(issue.key) ?? [],
     blocks: blocksKeys(issue),
     designApproved: Array.isArray(issue.fields.labels) && issue.fields.labels.includes(DESIGN_APPROVED_LABEL),
@@ -424,6 +425,7 @@ export async function getMilestoneDetail(
       type: issue.fields.issuetype.name,
       status: statusRef(issue.fields.status),
       assignee: issue.fields.assignee?.displayName ?? null,
+      assigneeId: issue.fields.assignee?.accountId ?? null,
       epicKey: external ? null : epicKey,
       // The owning team is the epic's — an item-level Team value is often
       // stale (copied from an old board) and would split one team in two.

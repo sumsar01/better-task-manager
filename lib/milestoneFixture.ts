@@ -55,6 +55,16 @@ function rng(seed: number) {
   };
 }
 
+/** Stable stand-in for an Atlassian accountId. */
+function personId(name: string | null): string | null {
+  return name ? `fixture-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}` : null;
+}
+
+/** YYYY-MM-DD, `offsetDays` from today. */
+function isoDay(offsetDays: number): string {
+  return new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+}
+
 export interface FixtureOptions {
   teams?: number;
   epicsPerTeam?: number;
@@ -148,8 +158,8 @@ export function buildFixtureDetail({ teams = 5, epicsPerTeam = 3, itemsPerEpic =
 
   // Two blockers outside the milestone.
   items.push(
-    { key: "FIN-12", summary: "Credit limit per project (Finance)", type: "Story", status: STATUS.indeterminate, assignee: "Per Ek", epicKey: null, team: "Finance", points: null, external: true, blocks: [items[3]?.key ?? ""].filter(Boolean) },
-    { key: "ERP-7", summary: "Expose agreement prices from ERP", type: "Task", status: STATUS.new, assignee: null, epicKey: null, team: "ERP", points: null, external: true, blocks: [items[12]?.key ?? ""].filter(Boolean) },
+    { key: "FIN-12", summary: "Credit limit per project (Finance)", type: "Story", status: STATUS.indeterminate, assignee: "Per Ek", epicKey: null, team: "Finance", points: null, external: true, outsideDecision: true, dueDate: isoDay(-3), blocks: [items[3]?.key ?? ""].filter(Boolean) },
+    { key: "ERP-7", summary: "Expose agreement prices from ERP", type: "Task", status: STATUS.new, assignee: null, epicKey: null, team: "ERP", points: null, external: true, outsideDecision: true, dueDate: isoDay(5), blocks: [items[12]?.key ?? ""].filter(Boolean) },
   );
 
   const increments: IncrementSummary[] = incrementKeys.map((key, i) => ({
@@ -164,6 +174,9 @@ export function buildFixtureDetail({ teams = 5, epicsPerTeam = 3, itemsPerEpic =
     blocks: i + 1 < incrementKeys.length && i % 2 === 0 ? [incrementKeys[i + 1] as string] : [],
     blockedBy: i > 0 && (i - 1) % 2 === 0 ? [incrementKeys[i - 1] as string] : [],
   }));
+
+  for (const e of epics) e.assigneeId = personId(e.assignee);
+  for (const i of items) i.assigneeId = personId(i.assignee);
 
   const analysis = analyzeMilestone({ increments, epics, items });
   return {

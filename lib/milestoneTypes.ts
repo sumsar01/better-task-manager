@@ -99,6 +99,8 @@ export interface WorkItem {
   type: string;
   status: StatusRef;
   assignee: string | null;
+  /** Atlassian accountId of the assignee; absent in older payloads. */
+  assigneeId?: string | null;
   epicKey: string | null;
   team: string;
   incrementKey: string | null;
@@ -140,6 +142,8 @@ export interface TeamEpic {
   team: string;
   projectKey: string;
   assignee: string | null;
+  /** Atlassian accountId of the assignee; absent in older payloads. */
+  assigneeId?: string | null;
   incrementKeys: string[];
   itemKeys: string[];
   progress: Progress;

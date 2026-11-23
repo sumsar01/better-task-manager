@@ -364,3 +364,8 @@ export function samePayload(a: unknown, b: unknown): boolean {
 export function itemByKey(detail: MilestoneDetail): Map<string, WorkItem> {
   return new Map(detail.items.map((i) => [i.key, i]));
 }
+
+/** The milestone detail route, carrying the dev `?fixture=` when there is one. */
+export function milestoneApiUrl(projectKey: string, versionId: string, fixture: string | null): string {
+  return `/api/jira/milestones/${encodeURIComponent(versionId)}?project=${encodeURIComponent(projectKey)}${fixture ? `&fixture=${encodeURIComponent(fixture)}` : ""}`;
+}
